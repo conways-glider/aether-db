@@ -61,14 +61,14 @@ async fn main() {
     // run the server
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
-        .unwrap();
+        .expect("could not bind to address");
     debug!("listening on {}", listener.local_addr().unwrap());
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
-    .unwrap();
+    .expect("could not start server");
 }
 
 async fn ws_handler(
