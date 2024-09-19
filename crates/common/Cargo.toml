@@ -1,6 +1,8 @@
 [package]
-name = "common"
+name = "aether-common"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tokio = { version = "1.0", features = ["sync"] }
+serde = { version = "1.0", features = ["derive"] }

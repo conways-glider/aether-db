@@ -1,14 +1,24 @@
 use axum::{
-    extract::{ws::{CloseFrame, Message, WebSocket}, ConnectInfo, WebSocketUpgrade},
+    extract::{
+        ws::{CloseFrame, Message, WebSocket}, ConnectInfo, State, WebSocketUpgrade
+    },
     response::IntoResponse,
     routing::get,
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow};
+use store::DataStore;
+use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+mod store;
+
+#[derive(Clone)]
+struct AppState {
+    pub data_store: DataStore
+}
 
 #[tokio::main]
 async fn main() {
@@ -21,9 +31,12 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let app_state = Arc::new(AppState{ data_store: DataStore::default() });
+
     let app = Router::new()
         .route("/ws", get(ws_handler))
-        .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()));
+        .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()))
+        .with_state(app_state);
 
     // run it with hyper
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -42,14 +55,15 @@ async fn main() {
 async fn ws_handler(
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<Arc<AppState>>
 ) -> impl IntoResponse {
     info!(?addr, "connected");
     // finalize the upgrade process by returning upgrade callback.
     // we can customize the callback by sending additional info such as address.
-    ws.on_upgrade(move |socket| handle_socket(socket, addr))
+    ws.on_upgrade(move |socket| handle_socket(socket, addr, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
+async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: Arc<AppState>) {
     info!(?who, "upgraded");
     // send a ping (unsupported by some browsers) just to kick things off and get a response
     if socket.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
