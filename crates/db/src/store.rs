@@ -3,7 +3,6 @@ use std::{collections::BTreeMap, sync::Arc};
 use aether_common::Message;
 use tokio::sync::{broadcast, watch, RwLock};
 
-
 #[derive(Clone, Default)]
 pub struct DataStore {
     // Data

@@ -1,7 +1,8 @@
 use aether_common::Command;
 use axum::{
     extract::{
-        ws::{CloseFrame, Message, WebSocket}, ConnectInfo, Query, State, WebSocketUpgrade
+        ws::{CloseFrame, Message, WebSocket},
+        ConnectInfo, Query, State, WebSocketUpgrade,
     },
     response::IntoResponse,
     routing::get,
@@ -9,9 +10,9 @@ use axum::{
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Deserialize;
+use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use store::DataStore;
 use tokio::sync::mpsc;
-use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -20,7 +21,7 @@ mod store;
 
 #[derive(Clone)]
 struct AppState {
-    pub data_store: DataStore
+    pub data_store: DataStore,
 }
 
 #[derive(Debug, Deserialize)]
@@ -29,7 +30,7 @@ struct ClientID {
 }
 
 enum Channels {
-    Commands(tokio::sync::mpsc::Receiver<Command>)
+    Commands(tokio::sync::mpsc::Receiver<Command>),
 }
 
 #[tokio::main]
@@ -47,7 +48,9 @@ async fn main() {
 
     // set up our app state
     // this contains our runtime data and configs
-    let app_state = Arc::new(AppState{ data_store: DataStore::default() });
+    let app_state = Arc::new(AppState {
+        data_store: DataStore::default(),
+    });
 
     // set up routing and middleware
     let app = Router::new()
@@ -72,9 +75,11 @@ async fn ws_handler(
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Query(client_id): Query<ClientID>,
-    State(state): State<Arc<AppState>>
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let client_id = client_id.client_id.unwrap_or(uuid::Uuid::new_v4().to_string());
+    let client_id = client_id
+        .client_id
+        .unwrap_or(uuid::Uuid::new_v4().to_string());
     info!(?addr, "connected");
     info!(?client_id, "client id");
     // finalize the upgrade process by returning upgrade callback.
@@ -83,12 +88,17 @@ async fn ws_handler(
 }
 
 #[instrument(skip(state, socket))]
-async fn handle_socket(client_id: String, socket_address: SocketAddr, state: Arc<AppState>, mut socket: WebSocket) {
+async fn handle_socket(
+    client_id: String,
+    socket_address: SocketAddr,
+    state: Arc<AppState>,
+    socket: WebSocket,
+) {
     info!("upgraded");
     // By splitting socket we can send and receive at the same time. In this example we will send
     // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
     let (mut sender, mut receiver) = socket.split();
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
@@ -102,11 +112,12 @@ async fn handle_socket(client_id: String, socket_address: SocketAddr, state: Arc
             return 0;
         }
 
-        let client_id_json = serde_json::to_string(&aether_common::Message::ClientId(client_id)).unwrap();
+        let client_id_json =
+            serde_json::to_string(&aether_common::Message::ClientId(client_id)).unwrap();
 
         sender.send(Message::Text(client_id_json)).await.unwrap();
 
-        let mut subscriptions: Vec<Channels> = vec![Channels::Commands(rx)];
+        let subscriptions: Vec<Channels> = vec![Channels::Commands(rx)];
 
         // Send dummy messages
         let n_msg = 20;
