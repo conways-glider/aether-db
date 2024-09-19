@@ -5,7 +5,7 @@ use axum::{
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
-use std::{borrow::Cow, net::SocketAddr};
+use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -128,10 +128,9 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         while let Some(Ok(msg)) = receiver.next().await {
             cnt += 1;
             // print message and break if instructed to do so
-            // if process_message(msg, who).is_break() {
-            //     break;
-            // }
-            info!(?msg, "got message");
+            if process_message(msg, who).is_break() {
+                break;
+            }
         }
         cnt
     });
@@ -141,14 +140,14 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
         rv_a = (&mut send_task) => {
             match rv_a {
                 Ok(a) => info!(?who, messages = a, "messages sent"),
-                Err(err) => error!(?err, "Error sending messages")
+                Err(err) => error!(?who, ?err, "Error sending messages")
             }
             recv_task.abort();
         },
         rv_b = (&mut recv_task) => {
             match rv_b {
-                Ok(b) => info!(messages = b, "Received messages"),
-                Err(err) => error!(?err, "Error receiving messages")
+                Ok(b) => info!(?who, messages = b, "Received messages"),
+                Err(err) => error!(?who, ?err, "Error receiving messages")
             }
             send_task.abort();
         }
@@ -156,4 +155,37 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr) {
 
     // returning from the handler closes the websocket connection
     info!(?who, "Websocket context destroyed");
+}
+
+fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
+    match msg {
+        Message::Text(t) => {
+            println!(">>> {who} sent str: {t:?}");
+        }
+        Message::Binary(d) => {
+            println!(">>> {} sent {} bytes: {:?}", who, d.len(), d);
+        }
+        Message::Close(c) => {
+            if let Some(cf) = c {
+                println!(
+                    ">>> {} sent close with code {} and reason `{}`",
+                    who, cf.code, cf.reason
+                );
+            } else {
+                println!(">>> {who} somehow sent close message without CloseFrame");
+            }
+            return ControlFlow::Break(());
+        }
+
+        Message::Pong(v) => {
+            println!(">>> {who} sent pong with {v:?}");
+        }
+        // You should never need to manually handle Message::Ping, as axum's websocket library
+        // will do so for you automagically by replying with Pong and copying the v according to
+        // spec. But if you need the contents of the pings you can see them here.
+        Message::Ping(v) => {
+            println!(">>> {who} sent ping with {v:?}");
+        }
+    }
+    ControlFlow::Continue(())
 }
