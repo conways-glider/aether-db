@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+/// Commands sent from the Client to the Server
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Command {
     SubscribeWatch(String),
     UnsubscribeWatch(String),
@@ -10,9 +11,9 @@ pub enum Command {
     SendBroadcast { channel: String, message: String },
 }
 
-#[derive(Serialize, Deserialize)]
+/// Messages sent from the Server to Clients
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
-    Command(Command),
     ClientId(String),
     WatchMessage { channel: String, message: String },
     BroadcastMessage { channel: String, message: String },

@@ -30,10 +30,12 @@ name = "aether-db"
 version = "0.1.0"
 dependencies = [
  "aether-common",
+ "anyhow",
  "axum",
  "futures",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tower 0.5.1",
  "tower-http",
@@ -50,6 +52,12 @@ checksum = "8e60d3430d3a69478ad0993f19238d2df97c507009a52b3c10addcd7f6bcb916"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "anyhow"
+version = "1.0.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
 
 [[package]]
 name = "async-trait"
