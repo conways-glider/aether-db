@@ -6,6 +6,7 @@ use tokio::sync::{broadcast, watch, RwLock};
 
 #[derive(Clone, Default)]
 pub struct DataStore {
+    // Data
     pub watch_channel: Arc<RwLock<BTreeMap<String, watch::Sender<Message>>>>,
     pub broadcast_channel: Arc<RwLock<BTreeMap<String, broadcast::Sender<Message>>>>,
     pub dict: Arc<RwLock<BTreeMap<String, String>>>,

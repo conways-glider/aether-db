@@ -1,16 +1,19 @@
+use aether_common::Command;
 use axum::{
     extract::{
-        ws::{CloseFrame, Message, WebSocket}, ConnectInfo, State, WebSocketUpgrade
+        ws::{CloseFrame, Message, WebSocket}, ConnectInfo, Query, State, WebSocketUpgrade
     },
     response::IntoResponse,
     routing::get,
     Router,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
+use serde::Deserialize;
 use store::DataStore;
+use tokio::sync::mpsc;
 use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod store;
@@ -18,6 +21,15 @@ mod store;
 #[derive(Clone)]
 struct AppState {
     pub data_store: DataStore
+}
+
+#[derive(Debug, Deserialize)]
+struct ClientID {
+    client_id: Option<String>,
+}
+
+enum Channels {
+    Commands(tokio::sync::mpsc::Receiver<Command>)
 }
 
 #[tokio::main]
@@ -59,65 +71,49 @@ async fn main() {
 async fn ws_handler(
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(client_id): Query<ClientID>,
     State(state): State<Arc<AppState>>
 ) -> impl IntoResponse {
+    let client_id = client_id.client_id.unwrap_or(uuid::Uuid::new_v4().to_string());
     info!(?addr, "connected");
+    info!(?client_id, "client id");
     // finalize the upgrade process by returning upgrade callback.
     // we can customize the callback by sending additional info such as address.
-    ws.on_upgrade(move |socket| handle_socket(socket, addr, state))
+    ws.on_upgrade(move |socket| handle_socket(client_id, addr, state, socket))
 }
 
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: Arc<AppState>) {
-    info!(?who, "upgraded");
-    // send a ping (unsupported by some browsers) just to kick things off and get a response
-    if socket.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
-        info!(?who, "pinged");
-    } else {
-        error!(?who, "could not send ping");
-        // no Error here since the only thing we can do is to close the connection.
-        // If we can not send messages, there is no way to salvage the statemachine anyway.
-        return;
-    }
-
-    if let Some(msg) = socket.recv().await {
-        if let Ok(msg) = msg {
-            // if process_message(msg, who).is_break() {
-            //     return;
-            // }
-            info!(?msg, "got message")
-        } else {
-            info!(?who, "client abruptly disconnected");
-            return;
-        }
-    }
-
-    // Since each client gets individual statemachine, we can pause handling
-    // when necessary to wait for some external event (in this case illustrated by sleeping).
-    // Waiting for this client to finish getting its greetings does not prevent other clients from
-    // connecting to server and receiving their greetings.
-    for i in 1..5 {
-        if socket
-            .send(Message::Text(format!("Hi {i} times!")))
-            .await
-            .is_err()
-        {
-            info!(?who, "client abruptly disconnected");
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
+#[instrument(skip(state, socket))]
+async fn handle_socket(client_id: String, socket_address: SocketAddr, state: Arc<AppState>, mut socket: WebSocket) {
+    info!("upgraded");
     // By splitting socket we can send and receive at the same time. In this example we will send
     // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
     let (mut sender, mut receiver) = socket.split();
+    let (tx, mut rx) = mpsc::channel(100);
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
+        // send a ping (unsupported by some browsers) just to kick things off and get a response
+        if sender.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
+            info!("pinged");
+        } else {
+            error!("could not send ping");
+            // no Error here since the only thing we can do is to close the connection.
+            // If we can not send messages, there is no way to salvage the statemachine anyway.
+            return 0;
+        }
+
+        let client_id_json = serde_json::to_string(&aether_common::Message::ClientId(client_id)).unwrap();
+
+        sender.send(Message::Text(client_id_json)).await.unwrap();
+
+        let mut subscriptions: Vec<Channels> = vec![Channels::Commands(rx)];
+
+        // Send dummy messages
         let n_msg = 20;
         for i in 0..n_msg {
             // In case of any websocket error, we exit.
             if sender
-                .send(Message::Text(format!("Server message {i} ...")))
+                .send(Message::Text(format!("Server message {i}")))
                 .await
                 .is_err()
             {
@@ -127,7 +123,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: Arc<AppSta
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
 
-        info!(?who, "Sending close");
+        info!("Sending close");
         if let Err(e) = sender
             .send(Message::Close(Some(CloseFrame {
                 code: axum::extract::ws::close_code::NORMAL,
@@ -141,68 +137,68 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: Arc<AppSta
     });
 
     // This second task will receive messages from client and print them on server console
-    let mut recv_task = tokio::spawn(async move {
-        let mut cnt = 0;
+    let mut receive_task = tokio::spawn(async move {
+        let mut count = 0;
         while let Some(Ok(msg)) = receiver.next().await {
-            cnt += 1;
+            count += 1;
             // print message and break if instructed to do so
-            if process_message(msg, who).is_break() {
+            if process_message(msg, socket_address).is_break() {
                 break;
             }
         }
-        cnt
+        count
     });
 
     // If any one of the tasks exit, abort the other.
     tokio::select! {
         rv_a = (&mut send_task) => {
             match rv_a {
-                Ok(a) => info!(?who, messages = a, "messages sent"),
-                Err(err) => error!(?who, ?err, "Error sending messages")
+                Ok(a) => info!(messages = a, "messages sent"),
+                Err(err) => error!(?err, "Error sending messages")
             }
-            recv_task.abort();
+            receive_task.abort();
         },
-        rv_b = (&mut recv_task) => {
+        rv_b = (&mut receive_task) => {
             match rv_b {
-                Ok(b) => info!(?who, messages = b, "Received messages"),
-                Err(err) => error!(?who, ?err, "Error receiving messages")
+                Ok(b) => info!(messages = b, "Received messages"),
+                Err(err) => error!(?err, "Error receiving messages")
             }
             send_task.abort();
         }
     }
 
     // returning from the handler closes the websocket connection
-    info!(?who, "Websocket context destroyed");
+    info!("Websocket context destroyed");
 }
 
+#[instrument(skip(msg))]
 fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
     match msg {
         Message::Text(t) => {
-            println!(">>> {who} sent str: {t:?}");
+            info!(?who, data = t, "sent str");
         }
         Message::Binary(d) => {
-            println!(">>> {} sent {} bytes: {:?}", who, d.len(), d);
+            info!(?who, data = ?d, bytes = d.len(), "sent bytes");
         }
         Message::Close(c) => {
             if let Some(cf) = c {
-                println!(
-                    ">>> {} sent close with code {} and reason `{}`",
-                    who, cf.code, cf.reason
+                info!(?who, code = cf.code, reason = ?cf.reason,
+                    "sent close"
                 );
             } else {
-                println!(">>> {who} somehow sent close message without CloseFrame");
+                info!(?who, "somehow sent close message without CloseFrame");
             }
             return ControlFlow::Break(());
         }
 
         Message::Pong(v) => {
-            println!(">>> {who} sent pong with {v:?}");
+            debug!(?who, data = ?v, "sent pong");
         }
         // You should never need to manually handle Message::Ping, as axum's websocket library
         // will do so for you automagically by replying with Pong and copying the v according to
         // spec. But if you need the contents of the pings you can see them here.
         Message::Ping(v) => {
-            println!(">>> {who} sent ping with {v:?}");
+            debug!(?who, data = ?v, "received ping");
         }
     }
     ControlFlow::Continue(())
