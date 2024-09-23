@@ -10,9 +10,10 @@ use axum::{
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Deserialize;
+use tokio_stream::{StreamMap};
 use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use store::DataStore;
-use tokio::sync::mpsc;
+use tokio::{select};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::{debug, error, info, instrument};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -98,7 +99,8 @@ async fn handle_socket(
     // By splitting socket we can send and receive at the same time. In this example we will send
     // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
     let (mut sender, mut receiver) = socket.split();
-    let (tx, rx) = mpsc::channel(100);
+    // let (command_tx, command_rx) = mpsc::channel(100);
+    let mut subscriptions = StreamMap::new();
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
@@ -109,7 +111,7 @@ async fn handle_socket(
             error!("could not send ping");
             // no Error here since the only thing we can do is to close the connection.
             // If we can not send messages, there is no way to salvage the statemachine anyway.
-            return 0;
+            return;
         }
 
         let client_id_json =
@@ -117,22 +119,16 @@ async fn handle_socket(
 
         sender.send(Message::Text(client_id_json)).await.unwrap();
 
-        let subscriptions: Vec<Channels> = vec![Channels::Commands(rx)];
-
-        // Send dummy messages
-        let n_msg = 20;
-        for i in 0..n_msg {
-            // In case of any websocket error, we exit.
-            if sender
-                .send(Message::Text(format!("Server message {i}")))
-                .await
-                .is_err()
-            {
-                return i;
+        // Handle messages
+        loop {
+            select! {
+                Some((channel_name, msg)) = subscriptions.next() => {
+                    // Write message
+                    debug!(channel_name, ?msg, "Sending message");
+                }
             }
-
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
+
 
         info!("Sending close");
         if let Err(e) = sender
@@ -144,7 +140,6 @@ async fn handle_socket(
         {
             error!(?e, "Could not send Close, probably it is ok?");
         }
-        n_msg
     });
 
     // This second task will receive messages from client and print them on server console
@@ -153,25 +148,24 @@ async fn handle_socket(
         while let Some(Ok(msg)) = receiver.next().await {
             count += 1;
             // print message and break if instructed to do so
-            if process_message(msg, socket_address).is_break() {
+            if process_command(msg, socket_address).is_break() {
                 break;
             }
         }
-        count
     });
 
     // If any one of the tasks exit, abort the other.
     tokio::select! {
         rv_a = (&mut send_task) => {
             match rv_a {
-                Ok(a) => info!(messages = a, "messages sent"),
+                Ok(()) => info!("send_task returned Ok"),
                 Err(err) => error!(?err, "Error sending messages")
             }
             receive_task.abort();
         },
         rv_b = (&mut receive_task) => {
             match rv_b {
-                Ok(b) => info!(messages = b, "Received messages"),
+                Ok(()) => info!("receive_task returned Ok"),
                 Err(err) => error!(?err, "Error receiving messages")
             }
             send_task.abort();
@@ -183,7 +177,7 @@ async fn handle_socket(
 }
 
 #[instrument(skip(msg))]
-fn process_message(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
+fn process_command(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
     match msg {
         Message::Text(t) => {
             info!(?who, data = t, "sent str");
