@@ -62,7 +62,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
         .expect("could not bind to address");
-    debug!("listening on {}", listener.local_addr().unwrap());
+    debug!("listening on {}", listener.local_addr().expect("could not get local address"));
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
