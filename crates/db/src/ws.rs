@@ -68,7 +68,8 @@ pub async fn handle_socket(
                     let text = serde_json::to_string(&client_message);
                     match text {
                         Ok(text) => {
-                            socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send broadcast message"));
+                            // TODO: Handle this result beyond logging if possible
+                            let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send broadcast message"));
                         },
                         Err(err) => error!(?err, "Could not serialize broadcast message"),
                     };
