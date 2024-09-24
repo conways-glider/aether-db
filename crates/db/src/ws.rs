@@ -1,7 +1,7 @@
 use aether_common::{BroadcastMessage, Command, Message};
 use axum::extract::ws::{CloseFrame, Message as WSMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
-use std::{borrow::Cow, collections::HashSet, net::SocketAddr, ops::ControlFlow, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, instrument};
 
@@ -21,7 +21,9 @@ pub async fn handle_socket(
     let (command_tx, mut command_rx) = mpsc::channel(100);
     let broadcast_sender = state.data_store.broadcast_channel.clone();
     let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
-    let mut subscriptions = HashSet::new();
+
+    // The bool represents if you receive your own messages.
+    let mut subscriptions: HashMap<String, bool> = HashMap::new();
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
@@ -39,7 +41,7 @@ pub async fn handle_socket(
             return;
         }
 
-        let client_id_json = serde_json::to_string(&Message::ClientId(client_id)).unwrap();
+        let client_id_json = serde_json::to_string(&Message::ClientId(client_id.clone())).unwrap();
 
         socket_sender
             .send(WSMessage::Text(client_id_json))
@@ -52,9 +54,9 @@ pub async fn handle_socket(
                 Some(command) = command_rx.recv() => {
                     debug!(?command, "Proccessed command");
                     match command {
-                        Command::SubscribeBroadcast(channel) => {subscriptions.insert(channel);},
+                        Command::SubscribeBroadcast{ channel, subscribe_to_self } => {subscriptions.insert(channel, subscribe_to_self);},
                         Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
-                        Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ channel, message }) {
+                        Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ client_id: client_id.clone(), channel, message }) {
                             Ok(_) => info!("Sent broadcast"),
                             Err(err) => error!(?err, "Could not send broadcast"),
                         },
@@ -62,21 +64,21 @@ pub async fn handle_socket(
                 }
                 Ok(message) = broadcast_receiver.recv() => {
                     // Write message
-                    if message.channel == "global" || subscriptions.contains(&message.channel) {
+                    if should_send_message(&client_id, &message, &subscriptions) {
                         debug!(?message, "Sending message");
-                    let client_message = Message::BroadcastMessage(message);
-                    let text = serde_json::to_string(&client_message);
-                    match text {
-                        Ok(text) => {
-                            // TODO: Handle this result beyond logging if possible
-                            let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send broadcast message"));
-                        },
-                        Err(err) => error!(?err, "Could not serialize broadcast message"),
-                    };
+                        let client_message = Message::BroadcastMessage(message);
+                        let text = serde_json::to_string(&client_message);
+                        match text {
+                            Ok(text) => {
+                                // TODO: Handle this result beyond logging if possible
+                                let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send broadcast message"));
+                            },
+                            Err(err) => error!(?err, "Could not serialize broadcast message"),
+                        };
                     }
                 }
             };
-        };
+        }
 
         // TODO: Add close broadcast for sanely closing clients
         info!("Sending close");
@@ -179,4 +181,15 @@ async fn process_command(
             ControlFlow::Break(())
         }
     }
+}
+
+fn should_send_message(
+    client_id: &String,
+    message: &BroadcastMessage,
+    subscriptions: &HashMap<String, bool>,
+) -> bool {
+    message.channel == "global"
+        || (subscriptions.contains_key(&message.channel)
+            && (message.client_id != *client_id
+                || *subscriptions.get(&message.channel).unwrap_or(&false)))
 }

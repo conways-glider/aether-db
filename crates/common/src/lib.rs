@@ -2,10 +2,20 @@ use serde::{Deserialize, Serialize};
 
 /// Commands sent from the Client to the Server
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Command {
-    SubscribeBroadcast(String),
+    SubscribeBroadcast {
+        channel: String,
+
+        // Default this to false
+        #[serde(default)]
+        subscribe_to_self: bool,
+    },
     UnsubscribeBroadcast(String),
-    SendBroadcast { channel: String, message: String },
+    SendBroadcast {
+        channel: String,
+        message: String,
+    },
 }
 
 /// Messages sent from the Server to Clients
@@ -18,6 +28,7 @@ pub enum Message {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BroadcastMessage {
+    pub client_id: String,
     pub channel: String,
     pub message: String,
 }
@@ -29,10 +40,12 @@ mod tests {
     #[test]
     fn serialize() {
         let item = BroadcastMessage {
+            client_id: "test".to_string(),
             channel: "test".to_string(),
             message: "testing message".to_string(),
         };
         let item_enum = Message::BroadcastMessage(BroadcastMessage {
+            client_id: "test".to_string(),
             channel: "test".to_string(),
             message: "testing message".to_string(),
         });
