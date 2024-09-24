@@ -28,10 +28,7 @@ pub async fn handle_socket(
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
         // send a ping (unsupported by some browsers) just to kick things off and get a response
-        if let Err(err) = socket_sender
-            .send(WSMessage::Ping(vec![1, 2, 3]))
-            .await
-        {
+        if let Err(err) = socket_sender.send(WSMessage::Ping(vec![1, 2, 3])).await {
             error!(?err, "Could not send ping");
             // no Error here since the only thing we can do is to close the connection.
             // If we can not send messages, there is no way to salvage the statemachine anyway.
@@ -50,16 +47,23 @@ pub async fn handle_socket(
         // Handle messages
         loop {
             select! {
-                Some(command) = command_rx.recv() => {
-                    debug!(?command, "Processed command");
-                    match command {
-                        Command::SubscribeBroadcast{ channel, subscribe_to_self } => {subscriptions.insert(channel, subscribe_to_self);},
-                        Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
-                        Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ client_id: client_id.clone(), channel, message }) {
-                            Ok(_) => info!("Sent broadcast"),
-                            Err(err) => error!(?err, "Could not send broadcast"),
+                possible_command = command_rx.recv() => {
+                    match possible_command {
+                        Some(command) => {debug!(?command, "Processed command");
+                        match command {
+                            Command::SubscribeBroadcast{ channel, subscribe_to_self } => {subscriptions.insert(channel, subscribe_to_self);},
+                            Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
+                            Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ client_id: client_id.clone(), channel, message }) {
+                                Ok(_) => info!("Sent broadcast"),
+                                Err(err) => error!(?err, "Could not send broadcast"),
+                            },
+                        }},
+                        None => {
+                            info!(?socket_address, client_id, "WS receiver closed");
+                            break;
                         },
                     }
+
                 }
                 Ok(message) = broadcast_receiver.recv() => {
                     // Write message
