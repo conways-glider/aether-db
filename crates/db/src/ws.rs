@@ -51,7 +51,7 @@ pub async fn handle_socket(
         loop {
             select! {
                 Some(command) = command_rx.recv() => {
-                    debug!(?command, "Proccessed command");
+                    debug!(?command, "Processed command");
                     match command {
                         Command::SubscribeBroadcast{ channel, subscribe_to_self } => {subscriptions.insert(channel, subscribe_to_self);},
                         Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
