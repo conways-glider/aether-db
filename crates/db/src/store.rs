@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use aether_common::BroadcastMessage;
 use tokio::sync::broadcast;
