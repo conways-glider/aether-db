@@ -54,7 +54,7 @@ async fn main() {
         .await
         .expect("could not bind to address");
     debug!(
-        "listening on {}",
+        "Listening on {}",
         listener.local_addr().expect("could not get local address")
     );
     axum::serve(
@@ -74,8 +74,7 @@ async fn ws_handler(
     let client_id = client_id
         .client_id
         .unwrap_or(uuid::Uuid::new_v4().to_string());
-    info!(?addr, "connected");
-    info!(?client_id, "client id");
+    info!(?addr, ?client_id, "Connected on websocket");
     // finalize the upgrade process by returning upgrade callback.
     // we can customize the callback by sending additional info such as address.
     ws.on_upgrade(move |socket| ws::handle_socket(client_id, addr, state, socket))
