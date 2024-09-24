@@ -1,0 +1,181 @@
+use aether_common::{BroadcastMessage, Command, Message};
+use axum::extract::ws::{CloseFrame, Message as WSMessage, WebSocket};
+use futures::{SinkExt, StreamExt};
+use std::{borrow::Cow, collections::HashSet, net::SocketAddr, ops::ControlFlow, sync::Arc};
+use tokio::{select, sync::mpsc};
+use tracing::{debug, error, info, instrument};
+
+use crate::AppState;
+
+#[instrument(skip(state, socket))]
+pub async fn handle_socket(
+    client_id: String,
+    socket_address: SocketAddr,
+    state: Arc<AppState>,
+    socket: WebSocket,
+) {
+    info!("upgraded");
+    // By splitting socket we can send and receive at the same time. In this example we will send
+    // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
+    let (mut socket_sender, mut socket_receiver) = socket.split();
+    let (command_tx, mut command_rx) = mpsc::channel(100);
+    let broadcast_sender = state.data_store.broadcast_channel.clone();
+    let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
+    let mut subscriptions = HashSet::new();
+
+    // Spawn a task that will push several messages to the client (does not matter what client does)
+    let mut send_task = tokio::spawn(async move {
+        // send a ping (unsupported by some browsers) just to kick things off and get a response
+        if socket_sender
+            .send(WSMessage::Ping(vec![1, 2, 3]))
+            .await
+            .is_ok()
+        {
+            info!("pinged");
+        } else {
+            error!("could not send ping");
+            // no Error here since the only thing we can do is to close the connection.
+            // If we can not send messages, there is no way to salvage the statemachine anyway.
+            return;
+        }
+
+        let client_id_json = serde_json::to_string(&Message::ClientId(client_id)).unwrap();
+
+        socket_sender
+            .send(WSMessage::Text(client_id_json))
+            .await
+            .unwrap();
+
+        // Handle messages
+        loop {
+            select! {
+                Some(command) = command_rx.recv() => {
+                    debug!(?command, "Proccessed command");
+                    match command {
+                        Command::SubscribeBroadcast(channel) => {subscriptions.insert(channel);},
+                        Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
+                        Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ channel, message }) {
+                            Ok(_) => info!("Sent broadcast"),
+                            Err(err) => error!(?err, "Could not send broadcast"),
+                        },
+                    }
+                }
+                Ok(message) = broadcast_receiver.recv() => {
+                    // Write message
+                    if message.channel == "global" || subscriptions.contains(&message.channel) {
+                        debug!(?message, "Sending message");
+                    let client_message = Message::BroadcastMessage(message);
+                    let text = serde_json::to_string(&client_message);
+                    match text {
+                        Ok(text) => {
+                            socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send broadcast message"));
+                        },
+                        Err(err) => error!(?err, "Could not serialize broadcast message"),
+                    };
+                    }
+                }
+            };
+        };
+
+        // TODO: Add close broadcast for sanely closing clients
+        info!("Sending close");
+        if let Err(e) = socket_sender
+            .send(WSMessage::Close(Some(CloseFrame {
+                code: axum::extract::ws::close_code::NORMAL,
+                reason: Cow::from("Goodbye"),
+            })))
+            .await
+        {
+            error!(?e, "Could not send Close, probably it is ok?");
+        }
+    });
+
+    // This second task will receive messages from client and print them on server console
+    let mut receive_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = socket_receiver.next().await {
+            // print message and break if instructed to do so
+            if process_command(msg, socket_address, &command_tx)
+                .await
+                .is_break()
+            {
+                return;
+            }
+        }
+    });
+
+    // If any one of the tasks exit, abort the other.
+    tokio::select! {
+        rv_a = (&mut send_task) => {
+            match rv_a {
+                Ok(()) => info!("send_task returned Ok"),
+                Err(err) => error!(?err, "Error sending messages")
+            }
+            receive_task.abort();
+        },
+        rv_b = (&mut receive_task) => {
+            match rv_b {
+                Ok(()) => info!("receive_task returned Ok"),
+                Err(err) => error!(?err, "Error receiving messages")
+            }
+            send_task.abort();
+        }
+    }
+
+    // returning from the handler closes the websocket connection
+    info!("Websocket context destroyed");
+}
+
+#[instrument(skip(msg))]
+async fn process_command(
+    msg: WSMessage,
+    who: SocketAddr,
+    command_tx: &mpsc::Sender<Command>,
+) -> ControlFlow<(), ()> {
+    match msg {
+        WSMessage::Text(t) => {
+            // info!(?who, data = t, "sent str");
+            let message = serde_json::from_str::<Command>(&t);
+            match message {
+                Ok(message) => match command_tx.send(message).await {
+                    Ok(_) => debug!(?who, "sent message to receive task"),
+                    Err(err) => error!(?err, ?who, "could not send message to receive task"),
+                },
+                Err(err) => error!(?err, ?who, "could not deserialize message"),
+            };
+            ControlFlow::Continue(())
+        }
+        WSMessage::Binary(d) => {
+            // info!(?who, data = ?d, bytes = d.len(), "sent bytes");
+            let message = serde_json::from_slice::<Command>(&d);
+            match message {
+                Ok(message) => match command_tx.send(message).await {
+                    Ok(_) => debug!(?who, "sent message to receive task"),
+                    Err(err) => error!(?err, ?who, "could not send message to receive task"),
+                },
+                Err(err) => error!(?err, ?who, "could not deserialize message"),
+            };
+            ControlFlow::Continue(())
+        }
+        WSMessage::Pong(v) => {
+            debug!(?who, data = ?v, "sent pong");
+            ControlFlow::Continue(())
+        }
+        // You should never need to manually handle Message::Ping, as axum's websocket library
+        // will do so for you automagically by replying with Pong and copying the v according to
+        // spec. But if you need the contents of the pings you can see them here.
+        WSMessage::Ping(v) => {
+            debug!(?who, data = ?v, "received ping");
+            ControlFlow::Continue(())
+        }
+        WSMessage::Close(c) => {
+            if let Some(cf) = c {
+                info!(?who, code = cf.code, reason = ?cf.reason,
+                    "sent close"
+                );
+            } else {
+                info!(?who, "somehow sent close message without CloseFrame");
+            }
+            ControlFlow::Break(())
+        }
+    }
+}

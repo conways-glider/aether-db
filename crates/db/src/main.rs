@@ -1,24 +1,18 @@
-use aether_common::Command;
 use axum::{
-    extract::{
-        ws::{CloseFrame, Message, WebSocket},
-        ConnectInfo, Query, State, WebSocketUpgrade,
-    },
+    extract::{ConnectInfo, Query, State, WebSocketUpgrade},
     response::IntoResponse,
     routing::get,
     Router,
 };
-use futures::{sink::SinkExt, stream::StreamExt};
 use serde::Deserialize;
-use tokio_stream::{StreamMap};
-use std::{borrow::Cow, net::SocketAddr, ops::ControlFlow, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use store::DataStore;
-use tokio::{select};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod store;
+mod ws;
 
 #[derive(Clone)]
 struct AppState {
@@ -28,10 +22,6 @@ struct AppState {
 #[derive(Debug, Deserialize)]
 struct ClientID {
     client_id: Option<String>,
-}
-
-enum Channels {
-    Commands(tokio::sync::mpsc::Receiver<Command>),
 }
 
 #[tokio::main]
@@ -63,7 +53,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
         .await
         .expect("could not bind to address");
-    debug!("listening on {}", listener.local_addr().expect("could not get local address"));
+    debug!(
+        "listening on {}",
+        listener.local_addr().expect("could not get local address")
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -85,126 +78,5 @@ async fn ws_handler(
     info!(?client_id, "client id");
     // finalize the upgrade process by returning upgrade callback.
     // we can customize the callback by sending additional info such as address.
-    ws.on_upgrade(move |socket| handle_socket(client_id, addr, state, socket))
-}
-
-#[instrument(skip(state, socket))]
-async fn handle_socket(
-    client_id: String,
-    socket_address: SocketAddr,
-    state: Arc<AppState>,
-    socket: WebSocket,
-) {
-    info!("upgraded");
-    // By splitting socket we can send and receive at the same time. In this example we will send
-    // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
-    let (mut sender, mut receiver) = socket.split();
-    // let (command_tx, command_rx) = mpsc::channel(100);
-    let mut subscriptions = StreamMap::new();
-
-    // Spawn a task that will push several messages to the client (does not matter what client does)
-    let mut send_task = tokio::spawn(async move {
-        // send a ping (unsupported by some browsers) just to kick things off and get a response
-        if sender.send(Message::Ping(vec![1, 2, 3])).await.is_ok() {
-            info!("pinged");
-        } else {
-            error!("could not send ping");
-            // no Error here since the only thing we can do is to close the connection.
-            // If we can not send messages, there is no way to salvage the statemachine anyway.
-            return;
-        }
-
-        let client_id_json =
-            serde_json::to_string(&aether_common::Message::ClientId(client_id)).unwrap();
-
-        sender.send(Message::Text(client_id_json)).await.unwrap();
-
-        // Handle messages
-        loop {
-            select! {
-                Some((channel_name, msg)) = subscriptions.next() => {
-                    // Write message
-                    debug!(channel_name, ?msg, "Sending message");
-                }
-            }
-        }
-
-
-        info!("Sending close");
-        if let Err(e) = sender
-            .send(Message::Close(Some(CloseFrame {
-                code: axum::extract::ws::close_code::NORMAL,
-                reason: Cow::from("Goodbye"),
-            })))
-            .await
-        {
-            error!(?e, "Could not send Close, probably it is ok?");
-        }
-    });
-
-    // This second task will receive messages from client and print them on server console
-    let mut receive_task = tokio::spawn(async move {
-        let mut count = 0;
-        while let Some(Ok(msg)) = receiver.next().await {
-            count += 1;
-            // print message and break if instructed to do so
-            if process_command(msg, socket_address).is_break() {
-                break;
-            }
-        }
-    });
-
-    // If any one of the tasks exit, abort the other.
-    tokio::select! {
-        rv_a = (&mut send_task) => {
-            match rv_a {
-                Ok(()) => info!("send_task returned Ok"),
-                Err(err) => error!(?err, "Error sending messages")
-            }
-            receive_task.abort();
-        },
-        rv_b = (&mut receive_task) => {
-            match rv_b {
-                Ok(()) => info!("receive_task returned Ok"),
-                Err(err) => error!(?err, "Error receiving messages")
-            }
-            send_task.abort();
-        }
-    }
-
-    // returning from the handler closes the websocket connection
-    info!("Websocket context destroyed");
-}
-
-#[instrument(skip(msg))]
-fn process_command(msg: Message, who: SocketAddr) -> ControlFlow<(), ()> {
-    match msg {
-        Message::Text(t) => {
-            info!(?who, data = t, "sent str");
-        }
-        Message::Binary(d) => {
-            info!(?who, data = ?d, bytes = d.len(), "sent bytes");
-        }
-        Message::Close(c) => {
-            if let Some(cf) = c {
-                info!(?who, code = cf.code, reason = ?cf.reason,
-                    "sent close"
-                );
-            } else {
-                info!(?who, "somehow sent close message without CloseFrame");
-            }
-            return ControlFlow::Break(());
-        }
-
-        Message::Pong(v) => {
-            debug!(?who, data = ?v, "sent pong");
-        }
-        // You should never need to manually handle Message::Ping, as axum's websocket library
-        // will do so for you automagically by replying with Pong and copying the v according to
-        // spec. But if you need the contents of the pings you can see them here.
-        Message::Ping(v) => {
-            debug!(?who, data = ?v, "received ping");
-        }
-    }
-    ControlFlow::Continue(())
+    ws.on_upgrade(move |socket| ws::handle_socket(client_id, addr, state, socket))
 }

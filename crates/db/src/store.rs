@@ -1,35 +1,25 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
-use aether_common::Message;
-use tokio::sync::{broadcast, RwLock};
+use aether_common::BroadcastMessage;
+use tokio::sync::broadcast;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DataStore {
     // Data
-    pub broadcast_channel: Arc<RwLock<BTreeMap<String, broadcast::Sender<Message>>>>,
-    pub dict: Arc<RwLock<BTreeMap<String, String>>>,
+    pub broadcast_channel: broadcast::Sender<BroadcastMessage>,
+    // pub dict: Arc<RwLock<BTreeMap<String, String>>>,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("channel does not exist: `{0}`")]
-    ChannelDoesNotExist(String),
-
     #[error("could not send on broadcast channel")]
-    BroadcastSendMessage(#[from] broadcast::error::SendError<Message>),
+    BroadcastSendMessage(#[from] broadcast::error::SendError<BroadcastMessage>),
 }
 
-impl DataStore {
-    pub async fn send_to_broadcast_channel(
-        &self,
-        channel_name: String,
-        message: Message,
-    ) -> Result<usize, Error> {
-        let watch_channels = self.broadcast_channel.read().await;
-        let channel = watch_channels.get(&channel_name);
-        match channel {
-            Some(channel) => channel.send(message).map_err(Error::BroadcastSendMessage),
-            None => Err(Error::ChannelDoesNotExist(channel_name)),
+impl Default for DataStore {
+    fn default() -> Self {
+        Self {
+            broadcast_channel: broadcast::Sender::new(100),
         }
     }
 }

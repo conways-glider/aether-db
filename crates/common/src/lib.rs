@@ -5,13 +5,41 @@ use serde::{Deserialize, Serialize};
 pub enum Command {
     SubscribeBroadcast(String),
     UnsubscribeBroadcast(String),
-    SendWatch { channel: String, message: String },
     SendBroadcast { channel: String, message: String },
 }
 
 /// Messages sent from the Server to Clients
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Message {
     ClientId(String),
-    BroadcastMessage { channel: String, message: String },
+    BroadcastMessage(BroadcastMessage),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BroadcastMessage {
+    pub channel: String,
+    pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialize() {
+        let item = BroadcastMessage {
+            channel: "test".to_string(),
+            message: "testing message".to_string(),
+        };
+        let item_enum = Message::BroadcastMessage(BroadcastMessage {
+            channel: "test".to_string(),
+            message: "testing message".to_string(),
+        });
+        let json = serde_json::to_string(&item);
+        let json_enum = serde_json::to_string(&item_enum);
+        println!("json: {:?}", json);
+        println!("json enum: {:?}", json_enum);
+        assert_eq!(4, 4);
+    }
 }
