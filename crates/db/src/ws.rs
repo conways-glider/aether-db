@@ -131,7 +131,7 @@ pub async fn handle_socket(
     info!("Websocket context destroyed");
 }
 
-#[instrument(skip(msg))]
+#[instrument(skip(msg, command_tx))]
 async fn process_command(
     msg: WSMessage,
     who: SocketAddr,
