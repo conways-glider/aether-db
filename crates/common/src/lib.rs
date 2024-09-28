@@ -21,10 +21,7 @@ pub enum Command {
     /// This sends a broadcast to the given channel
     ///
     /// If the channel is `general`, all clients will receive this message.
-    SendBroadcast {
-        channel: String,
-        message: String,
-    },
+    SendBroadcast { channel: String, message: String },
 
     /// This sets a value in the string database
     ///
@@ -36,9 +33,7 @@ pub enum Command {
     },
 
     /// This retrieves a value from the string database
-    GetString {
-        key: String,
-    },
+    GetString { key: String },
 }
 
 /// Messages sent from the Server to Clients
