@@ -1,7 +1,8 @@
 [package]
 name = "aether-db"
-version = "0.1.0"
 edition = "2021"
+version.workspace = true
+license.workspace = true
 
 [dependencies]
 aether-common = { path = "../common" }
