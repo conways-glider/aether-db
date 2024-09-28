@@ -66,6 +66,7 @@ pub enum Message {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BroadcastMessage {
     pub client_id: String,
     pub channel: String,
