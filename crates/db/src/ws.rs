@@ -1,14 +1,35 @@
 use aether_common::{BroadcastMessage, Command, Message};
-use axum::extract::ws::{CloseFrame, Message as WSMessage, WebSocket};
+use axum::{
+    extract::{
+        ws::{CloseFrame, Message as WSMessage, WebSocket},
+        ConnectInfo, Query, State, WebSocketUpgrade,
+    },
+    response::IntoResponse,
+};
 use futures::{SinkExt, StreamExt};
 use std::{borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc};
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, instrument};
 
-use crate::AppState;
+use crate::{AppState, ClientID};
+
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(client_id): Query<ClientID>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let client_id = client_id
+        .client_id
+        .unwrap_or(uuid::Uuid::new_v4().to_string());
+    info!(?addr, ?client_id, "Connected on websocket");
+    // finalize the upgrade process by returning upgrade callback.
+    // we can customize the callback by sending additional info such as address.
+    ws.on_upgrade(move |socket| handle_socket(client_id, addr, state, socket))
+}
 
 #[instrument(skip(state, socket))]
-pub async fn handle_socket(
+async fn handle_socket(
     client_id: String,
     socket_address: SocketAddr,
     state: Arc<AppState>,
@@ -92,7 +113,7 @@ pub async fn handle_socket(
             })))
             .await
         {
-            error!(?e, "Could not send Close, probably it is ok?");
+            error!(?e, "Could not send Close, most likely okay");
         }
     });
 
@@ -134,52 +155,61 @@ pub async fn handle_socket(
 #[instrument(skip(msg, command_tx))]
 async fn process_command(
     msg: WSMessage,
-    who: SocketAddr,
+    socket_address: SocketAddr,
     command_tx: &mpsc::Sender<Command>,
 ) -> ControlFlow<(), ()> {
     match msg {
         WSMessage::Text(t) => {
-            // info!(?who, data = t, "sent str");
             let message = serde_json::from_str::<Command>(&t);
             match message {
                 Ok(message) => match command_tx.send(message).await {
-                    Ok(_) => debug!(?who, "Sent message to receive task"),
-                    Err(err) => error!(?err, ?who, "Could not send message to receive task"),
+                    Ok(_) => debug!(?socket_address, "Sent message to receive task"),
+                    Err(err) => error!(
+                        ?err,
+                        ?socket_address,
+                        "Could not send message to receive task"
+                    ),
                 },
-                Err(err) => error!(?err, ?who, "Could not deserialize message"),
+                Err(err) => error!(?err, ?socket_address, "Could not deserialize message"),
             };
             ControlFlow::Continue(())
         }
         WSMessage::Binary(d) => {
-            // info!(?who, data = ?d, bytes = d.len(), "sent bytes");
             let message = serde_json::from_slice::<Command>(&d);
             match message {
                 Ok(message) => match command_tx.send(message).await {
-                    Ok(_) => debug!(?who, "Sent message to receive task"),
-                    Err(err) => error!(?err, ?who, "Could not send message to receive task"),
+                    Ok(_) => debug!(?socket_address, "Sent message to receive task"),
+                    Err(err) => error!(
+                        ?err,
+                        ?socket_address,
+                        "Could not send message to receive task"
+                    ),
                 },
-                Err(err) => error!(?err, ?who, "Could not deserialize message"),
+                Err(err) => error!(?err, ?socket_address, "Could not deserialize message"),
             };
             ControlFlow::Continue(())
         }
         WSMessage::Pong(v) => {
-            debug!(?who, data = ?v, "Sent pong");
+            debug!(?socket_address, data = ?v, "Sent pong");
             ControlFlow::Continue(())
         }
         // You should never need to manually handle Message::Ping, as axum's websocket library
         // will do so for you automagically by replying with Pong and copying the v according to
         // spec. But if you need the contents of the pings you can see them here.
         WSMessage::Ping(v) => {
-            debug!(?who, data = ?v, "Received ping");
+            debug!(?socket_address, data = ?v, "Received ping");
             ControlFlow::Continue(())
         }
         WSMessage::Close(c) => {
             if let Some(cf) = c {
-                info!(?who, code = cf.code, reason = ?cf.reason,
+                info!(?socket_address, code = cf.code, reason = ?cf.reason,
                     "Sent close"
                 );
             } else {
-                info!(?who, "Somehow sent close message without CloseFrame");
+                info!(
+                    ?socket_address,
+                    "Somehow sent close message without CloseFrame"
+                );
             }
             ControlFlow::Break(())
         }
