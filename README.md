@@ -4,16 +4,6 @@ AetherDB is an In-Memory Database and Pub/Sub system.
 
 AetherDB is open source and will always be licensed as such. See the [License](#license) section for more details.
 
-## TODO
-
-- Add config file handling
-- Add shutdown signal handling
-- Allow DB Backup
-  - This requires the DB is serializable
-- Allow Command Replay
-  - This requires being aware of expirations and intended behavior
-- Add messaging directly from one client to another, specifying the client_id
-
 ## License
 
 Licensed under either of
