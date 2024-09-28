@@ -19,7 +19,7 @@ pub enum Command {
     SetString {
         key: String,
         value: String,
-        expiration: Option<String>,
+        expiration: Option<u32>,
     },
     GetString {
         key: String,
@@ -46,6 +46,7 @@ pub struct BroadcastMessage {
 mod tests {
     use super::*;
 
+    // TODO: Remove this testing func
     #[test]
     fn serialize() {
         let item = BroadcastMessage {

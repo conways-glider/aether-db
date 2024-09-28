@@ -4,6 +4,7 @@ use tokio::{
     sync::{Notify, RwLock},
     time::Instant,
 };
+use tracing::debug;
 
 #[derive(Clone)]
 pub struct Database {
@@ -89,7 +90,7 @@ impl Store {
     async fn remove_expired_values(&self) -> Option<Instant> {
         let mut state = self.data.write().await;
         let now = Instant::now();
-        println!("removing expired values: {:?}", now);
+        debug!("removing expired values");
 
         // Remove expired values
         // TODO: This could be more efficient by caching expirations

@@ -7,8 +7,10 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use std::{borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc};
-use tokio::{select, sync::mpsc};
+use std::{
+    borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc, time::Duration,
+};
+use tokio::{select, sync::mpsc, time::Instant};
 use tracing::{debug, error, info, instrument};
 
 use crate::{AppState, ClientID};
@@ -70,7 +72,7 @@ async fn handle_socket(
             select! {
                 possible_command = command_rx.recv() => {
                     match possible_command {
-                        Some(command) => {debug!(?command, "Processed command");
+                        Some(command) => {
                         match command {
                             Command::SubscribeBroadcast{ channel, subscribe_to_self } => {subscriptions.insert(channel, subscribe_to_self);},
                             Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
@@ -79,9 +81,11 @@ async fn handle_socket(
                                 Err(err) => error!(?err, "Could not send broadcast"),
                             },
                             Command::SetString { key, value, expiration } => {
-                                // TODO: Handle Expiration
-                                // Maybe this should be a duration instead of an instant?
-                                state.data_store.string_db.set(key, value, None).await;
+                                let expiration = expiration.and_then(|expiration_seconds| {
+                                    let expiration_duration = Duration::from_secs(expiration_seconds as u64);
+                                    Instant::now().checked_add(expiration_duration)
+                                });
+                                state.data_store.string_db.set(key, value, expiration).await;
                             },
                             Command::GetString { key } => {
                                 let value = state.data_store.string_db.get(&key).await;

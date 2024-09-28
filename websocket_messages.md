@@ -22,7 +22,8 @@
 ## String Database
 
 ```
-{"set_string": {"key":"test","value":"value"}}
+{"set_string": {"key":"test", "value":"value"}}
+{"set_string": {"key":"expire", "value":"value", "expiration": 20}}
 {"get_string": {"key":"test"}}
-
+{"get_string": {"key":"expire"}}
 ```
