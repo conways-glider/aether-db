@@ -78,12 +78,14 @@ async fn handle_socket(
                                 Ok(_) => info!("Sent broadcast"),
                                 Err(err) => error!(?err, "Could not send broadcast"),
                             },
-                            Command::SetStringDatabase { key, value } => {
+                            Command::SetString { key, value, expiration } => {
+                                // TODO: Handle Expiration
+                                // Maybe this should be a duration instead of an instant?
                                 state.data_store.string_db.set(key, value, None).await;
                             },
-                            Command::GetStringDatabase { key } => {
+                            Command::GetString { key } => {
                                 let value = state.data_store.string_db.get(&key).await;
-                                let text = serde_json::to_string(&value);
+                                let text = serde_json::to_string(&Message::GetString(value));
                                 match text {
                                     Ok(text) => {
                                         // TODO: Handle this result beyond logging if possible

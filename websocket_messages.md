@@ -18,3 +18,11 @@
 ```
 {"unsubscribe_broadcast": "testing"}
 ```
+
+## String Database
+
+```
+{"set_string": {"key":"test","value":"value"}}
+{"get_string": {"key":"test"}}
+
+```

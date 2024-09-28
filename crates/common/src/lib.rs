@@ -16,11 +16,12 @@ pub enum Command {
         channel: String,
         message: String,
     },
-    SetStringDatabase {
+    SetString {
         key: String,
         value: String,
+        expiration: Option<String>,
     },
-    GetStringDatabase {
+    GetString {
         key: String,
     },
 }
