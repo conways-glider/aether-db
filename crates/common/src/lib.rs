@@ -88,28 +88,3 @@ pub enum StatusMessage {
         operation: Option<Command>,
     },
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // TODO: Remove this testing func
-    #[test]
-    fn serialize() {
-        let item = BroadcastMessage {
-            client_id: "test".to_string(),
-            channel: "test".to_string(),
-            message: "testing message".to_string(),
-        };
-        let item_enum = Message::BroadcastMessage(BroadcastMessage {
-            client_id: "test".to_string(),
-            channel: "test".to_string(),
-            message: "testing message".to_string(),
-        });
-        let json = serde_json::to_string(&item);
-        let json_enum = serde_json::to_string(&item_enum);
-        println!("json: {:?}", json);
-        println!("json enum: {:?}", json_enum);
-        assert_eq!(4, 4);
-    }
-}
