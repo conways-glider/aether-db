@@ -7,7 +7,7 @@ use crate::db::Database;
 pub struct DataStore {
     // Data
     pub broadcast_channel: broadcast::Sender<BroadcastMessage>,
-    pub string_db: Database,
+    pub string_db: Database<String>,
 }
 
 #[derive(thiserror::Error, Debug)]

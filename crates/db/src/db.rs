@@ -7,12 +7,12 @@ use tokio::{
 use tracing::debug;
 
 #[derive(Clone)]
-pub struct Database {
-    store: Arc<Store>,
+pub struct Database<V> {
+    store: Arc<Store<V>>,
 }
 
-struct Store {
-    data: RwLock<HashMap<String, Value<String>>>,
+struct Store<V> {
+    data: RwLock<HashMap<String, Value<V>>>,
     background_task: Notify,
 }
 
@@ -21,8 +21,11 @@ struct Value<V> {
     pub expiry: Option<Instant>,
 }
 
-impl Database {
-    pub fn new() -> Database {
+impl<V> Database<V>
+where
+    V: Clone + Send + Sync + 'static,
+{
+    pub fn new() -> Database<V> {
         let db = Database {
             store: Arc::new(Store::new()),
         };
@@ -30,12 +33,12 @@ impl Database {
         db
     }
 
-    pub async fn get(&self, key: &str) -> Option<String> {
+    pub async fn get(&self, key: &str) -> Option<V> {
         let data = self.store.data.read().await;
         data.get(key).map(|value| value.value.clone())
     }
 
-    pub async fn set(&self, key: String, value: String, expiration: Option<Instant>) {
+    pub async fn set(&self, key: String, value: V, expiration: Option<Instant>) {
         // Get next expiration to see if notification is necessary
         let next_expiration = self.store.next_expiration().await;
 
@@ -70,8 +73,8 @@ impl Database {
     }
 }
 
-impl Store {
-    fn new() -> Store {
+impl<V> Store<V> {
+    fn new() -> Store<V> {
         Store {
             data: RwLock::new(HashMap::new()),
             background_task: Notify::new(),
@@ -105,7 +108,7 @@ impl Store {
     }
 }
 
-async fn remove_expired_entries(data: Arc<Store>) {
+async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
     loop {
         if let Some(instant) = data.remove_expired_values().await {
             tokio::select! {
