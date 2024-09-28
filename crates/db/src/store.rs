@@ -8,6 +8,7 @@ pub struct DataStore {
     // Data
     pub broadcast_channel: broadcast::Sender<BroadcastMessage>,
     pub string_db: Database<String>,
+    pub json_db: Database<serde_json::Value>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -21,6 +22,7 @@ impl Default for DataStore {
         Self {
             broadcast_channel: broadcast::Sender::new(crate::CHANNEL_SIZE),
             string_db: Database::new(),
+            json_db: Database::new(),
         }
     }
 }
