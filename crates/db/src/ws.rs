@@ -1,4 +1,4 @@
-use aether_common::{BroadcastMessage, Command, Message};
+use aether_common::{BroadcastMessage, Command, ErrorMessage, Message};
 use axum::{
     extract::{
         ws::{CloseFrame, Message as WSMessage, WebSocket},
@@ -42,6 +42,7 @@ async fn handle_socket(
     // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
     let (mut socket_sender, mut socket_receiver) = socket.split();
     let (command_tx, mut command_rx) = mpsc::channel(crate::CHANNEL_SIZE);
+    let (error_tx, mut error_rx) = mpsc::channel(crate::CHANNEL_SIZE);
     let broadcast_sender = state.data_store.broadcast_channel.clone();
     let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
 
@@ -150,6 +151,18 @@ async fn handle_socket(
                         }
                     }
                 }
+                Some(error) = error_rx.recv() => {
+                    debug!(?error, "Sending error");
+                    let client_error = Message::Error(error);
+                    let text = serde_json::to_string(&client_error);
+                    match text {
+                        Ok(text) => {
+                            // TODO: Handle this result beyond logging if possible
+                            let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send error message"));
+                        },
+                        Err(err) => error!(?err, "Could not serialize error message"),
+                    }
+                }
             }
         }
 
@@ -170,7 +183,7 @@ async fn handle_socket(
     let mut receive_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = socket_receiver.next().await {
             // print message and break if instructed to do so
-            if process_command(msg, socket_address, &command_tx)
+            if process_command(msg, socket_address, &command_tx, &error_tx)
                 .await
                 .is_break()
             {
@@ -201,11 +214,12 @@ async fn handle_socket(
     info!("Websocket context destroyed");
 }
 
-#[instrument(skip(msg, command_tx))]
+#[instrument(skip(msg, command_tx, error_tx))]
 async fn process_command(
     msg: WSMessage,
     socket_address: SocketAddr,
     command_tx: &mpsc::Sender<Command>,
+    error_tx: &mpsc::Sender<ErrorMessage>,
 ) -> ControlFlow<(), ()> {
     match msg {
         WSMessage::Text(t) => {
@@ -219,7 +233,12 @@ async fn process_command(
                         "Could not send message to receive task"
                     ),
                 },
-                Err(err) => error!(?err, ?socket_address, "Could not deserialize message"),
+                // Err(err) => error!(?err, ?socket_address, "Could not deserialize message"),
+                Err(err) => {
+                    let error_message = "Could not deserialize string message";
+                    error!(?err, error_message);
+                    let _ = error_tx.send(ErrorMessage { message: error_message.to_string(), operation: None }).await.inspect_err(|err| error!(?err, "Could not send error message"));
+                },
             };
             ControlFlow::Continue(())
         }
@@ -234,7 +253,11 @@ async fn process_command(
                         "Could not send message to receive task"
                     ),
                 },
-                Err(err) => error!(?err, ?socket_address, "Could not deserialize message"),
+                Err(err) => {
+                    let error_message = "Could not deserialize binary message";
+                    error!(?err, error_message);
+                    let _ = error_tx.send(ErrorMessage { message: error_message.to_string(), operation: None }).await.inspect_err(|err| error!(?err, "Could not send error message"));
+                },
             };
             ControlFlow::Continue(())
         }

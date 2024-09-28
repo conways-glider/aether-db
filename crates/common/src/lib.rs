@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 /// Commands sent from the Client to the Server
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -63,6 +64,9 @@ pub enum Message {
 
     /// This contains the result of a GetJson command
     GetJson(Option<serde_json::Value>),
+
+    /// This contains an error state
+    Error(ErrorMessage),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,6 +75,16 @@ pub struct BroadcastMessage {
     pub client_id: String,
     pub channel: String,
     pub message: String,
+}
+
+/// This contains an error state
+///
+/// `operation` may not be set if it is a serialization error or the operation is unknown for some reason.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ErrorMessage {
+    pub message: String,
+    pub operation: Option<Command>,
 }
 
 #[cfg(test)]
