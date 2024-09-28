@@ -1,4 +1,8 @@
-# Aether DB
+# AetherDB
+
+AetherDB is an In-Memory Database and Pub/Sub system.
+
+AetherDB is open source and will always be licensed as such. See the [License](#license) section for more details.
 
 ## License
 

@@ -1,18 +1,18 @@
-use axum::{
-    extract::{ConnectInfo, Query, State, WebSocketUpgrade},
-    response::IntoResponse,
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use store::DataStore;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::{debug, info};
+use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod db;
 mod store;
 mod ws;
+
+// TODO: Make this configurable
+// Also, maybe split it out into a few different values
+const CHANNEL_SIZE: usize = 1000;
 
 #[derive(Clone)]
 struct AppState {
@@ -45,7 +45,7 @@ async fn main() {
 
     // set up routing and middleware
     let app = Router::new()
-        .route("/ws", get(ws_handler))
+        .route("/ws", get(ws::ws_handler))
         .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default()))
         .with_state(app_state);
 
@@ -63,19 +63,4 @@ async fn main() {
     )
     .await
     .expect("could not start server");
-}
-
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    Query(client_id): Query<ClientID>,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let client_id = client_id
-        .client_id
-        .unwrap_or(uuid::Uuid::new_v4().to_string());
-    info!(?addr, ?client_id, "Connected on websocket");
-    // finalize the upgrade process by returning upgrade callback.
-    // we can customize the callback by sending additional info such as address.
-    ws.on_upgrade(move |socket| ws::handle_socket(client_id, addr, state, socket))
 }
