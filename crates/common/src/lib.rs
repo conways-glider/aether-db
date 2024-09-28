@@ -16,6 +16,13 @@ pub enum Command {
         channel: String,
         message: String,
     },
+    SetStringDatabase{
+        key: String,
+        value: String,
+    },
+    GetStringDatabase{
+        key: String
+    },
 }
 
 /// Messages sent from the Server to Clients
@@ -24,6 +31,7 @@ pub enum Command {
 pub enum Message {
     ClientId(String),
     BroadcastMessage(BroadcastMessage),
+    GetString(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
