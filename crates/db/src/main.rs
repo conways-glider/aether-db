@@ -10,6 +10,8 @@ mod db;
 mod store;
 mod ws;
 
+// TODO: Make this configurable
+// Also, maybe split it out into a few different values
 const CHANNEL_SIZE: usize = 1000;
 
 #[derive(Clone)]
