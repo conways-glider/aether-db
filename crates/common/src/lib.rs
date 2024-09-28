@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
 
 /// Commands sent from the Client to the Server
 #[derive(Clone, Debug, Serialize, Deserialize)]

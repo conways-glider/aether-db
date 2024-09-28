@@ -237,8 +237,14 @@ async fn process_command(
                 Err(err) => {
                     let error_message = "Could not deserialize string message";
                     error!(?err, error_message);
-                    let _ = error_tx.send(ErrorMessage { message: error_message.to_string(), operation: None }).await.inspect_err(|err| error!(?err, "Could not send error message"));
-                },
+                    let _ = error_tx
+                        .send(ErrorMessage {
+                            message: error_message.to_string(),
+                            operation: None,
+                        })
+                        .await
+                        .inspect_err(|err| error!(?err, "Could not send error message"));
+                }
             };
             ControlFlow::Continue(())
         }
@@ -256,8 +262,14 @@ async fn process_command(
                 Err(err) => {
                     let error_message = "Could not deserialize binary message";
                     error!(?err, error_message);
-                    let _ = error_tx.send(ErrorMessage { message: error_message.to_string(), operation: None }).await.inspect_err(|err| error!(?err, "Could not send error message"));
-                },
+                    let _ = error_tx
+                        .send(ErrorMessage {
+                            message: error_message.to_string(),
+                            operation: None,
+                        })
+                        .await
+                        .inspect_err(|err| error!(?err, "Could not send error message"));
+                }
             };
             ControlFlow::Continue(())
         }
