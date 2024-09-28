@@ -34,6 +34,18 @@ pub enum Command {
 
     /// This retrieves a value from the string database
     GetString { key: String },
+
+    /// This sets a value in the json database
+    ///
+    /// `expiration` is the expiration time in seconds.
+    SetJson {
+        key: String,
+        value: serde_json::Value,
+        expiration: Option<u32>,
+    },
+
+    /// This retrieves a value from the json database
+    GetJson { key: String },
 }
 
 /// Messages sent from the Server to Clients
@@ -48,6 +60,9 @@ pub enum Message {
 
     /// This contains the result of a GetString command
     GetString(Option<String>),
+
+    /// This contains the result of a GetJson command
+    GetJson(Option<serde_json::Value>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

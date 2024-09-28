@@ -99,6 +99,25 @@ async fn handle_socket(
                                 }
 
                             },
+                            Command::SetJson { key, value, expiration } => {
+                                let expiration = expiration.and_then(|expiration_seconds| {
+                                    let expiration_duration = Duration::from_secs(expiration_seconds as u64);
+                                    Instant::now().checked_add(expiration_duration)
+                                });
+                                state.data_store.json_db.set(key, value, expiration).await;
+                            },
+                            Command::GetJson { key } => {
+                                let value = state.data_store.json_db.get(&key).await;
+                                let text = serde_json::to_string(&Message::GetJson(value));
+                                match text {
+                                    Ok(text) => {
+                                        // TODO: Handle this result beyond logging if possible
+                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send get string message"));
+                                    },
+                                    Err(err) => error!(?err, "Could not serialize broadcast message"),
+                                }
+
+                            },
                         }},
                         None => {
                             info!(?socket_address, client_id, "WS receiver closed");
