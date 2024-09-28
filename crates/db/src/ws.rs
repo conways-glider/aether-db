@@ -62,10 +62,12 @@ async fn handle_socket(
 
         let client_id_json = serde_json::to_string(&Message::ClientId(client_id.clone())).unwrap();
 
-        socket_sender
+        if let Err(err) = socket_sender
             .send(WSMessage::Text(client_id_json))
-            .await
-            .unwrap();
+            .await {
+                error!(?err, "Could not send client_id");
+                return;
+            }
 
         // Handle messages
         loop {
