@@ -153,7 +153,7 @@ async fn handle_socket(
             }
         }
 
-        // TODO: Add close broadcast for sanely closing clients
+        // TODO: Add close send for sanely closing clients on early returns above
         info!("Sending close");
         if let Err(e) = socket_sender
             .send(WSMessage::Close(Some(CloseFrame {
