@@ -1,5 +1,7 @@
 # Websocket Messages for Testing
 
+This document details the socket messages that may be sent for testing purposes.
+
 ## Broadcast Message Command
 
 ```json
