@@ -1,4 +1,4 @@
-use aether_common::{BroadcastMessage, Command, ErrorMessage, Message};
+use aether_common::{BroadcastMessage, Command, StatusMessage, Message};
 use axum::{
     extract::{
         ws::{CloseFrame, Message as WSMessage, WebSocket},
@@ -42,7 +42,7 @@ async fn handle_socket(
     // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
     let (mut socket_sender, mut socket_receiver) = socket.split();
     let (command_tx, mut command_rx) = mpsc::channel(crate::CHANNEL_SIZE);
-    let (error_tx, mut error_rx) = mpsc::channel(crate::CHANNEL_SIZE);
+    let (status_tx, mut status_rx) = mpsc::channel(crate::CHANNEL_SIZE);
     let broadcast_sender = state.data_store.broadcast_channel.clone();
     let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
 
@@ -96,6 +96,17 @@ async fn handle_socket(
                                     Instant::now().checked_add(expiration_duration)
                                 });
                                 state.data_store.string_db.set(key, value, expiration).await;
+
+                                // Return Ok
+                                let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
+                                // TODO: Handle this result beyond logging if possible
+                                match text {
+                                    Ok(text) => {
+                                        // TODO: Handle this result beyond logging if possible
+                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set string message"));
+                                    },
+                                    Err(err) => error!(?err, "Could not serialize set string message"),
+                                }
                             },
                             Command::GetString { key } => {
                                 let value = state.data_store.string_db.get(&key).await;
@@ -115,6 +126,17 @@ async fn handle_socket(
                                     Instant::now().checked_add(expiration_duration)
                                 });
                                 state.data_store.json_db.set(key, value, expiration).await;
+
+                                // Return Ok
+                                let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
+                                // TODO: Handle this result beyond logging if possible
+                                match text {
+                                    Ok(text) => {
+                                        // TODO: Handle this result beyond logging if possible
+                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set json message"));
+                                    },
+                                    Err(err) => error!(?err, "Could not serialize set json message"),
+                                }
                             },
                             Command::GetJson { key } => {
                                 let value = state.data_store.json_db.get(&key).await;
@@ -151,9 +173,9 @@ async fn handle_socket(
                         }
                     }
                 }
-                Some(error) = error_rx.recv() => {
+                Some(error) = status_rx.recv() => {
                     debug!(?error, "Sending error");
-                    let client_error = Message::Error(error);
+                    let client_error = Message::Status(error);
                     let text = serde_json::to_string(&client_error);
                     match text {
                         Ok(text) => {
@@ -183,7 +205,7 @@ async fn handle_socket(
     let mut receive_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = socket_receiver.next().await {
             // print message and break if instructed to do so
-            if process_command(msg, socket_address, &command_tx, &error_tx)
+            if process_command(msg, socket_address, &command_tx, &status_tx)
                 .await
                 .is_break()
             {
@@ -214,12 +236,12 @@ async fn handle_socket(
     info!("Websocket context destroyed");
 }
 
-#[instrument(skip(msg, command_tx, error_tx))]
+#[instrument(skip(msg, command_tx, status_tx))]
 async fn process_command(
     msg: WSMessage,
     socket_address: SocketAddr,
     command_tx: &mpsc::Sender<Command>,
-    error_tx: &mpsc::Sender<ErrorMessage>,
+    status_tx: &mpsc::Sender<StatusMessage>,
 ) -> ControlFlow<(), ()> {
     match msg {
         WSMessage::Text(t) => {
@@ -237,8 +259,8 @@ async fn process_command(
                 Err(err) => {
                     let error_message = "Could not deserialize string message";
                     error!(?err, error_message);
-                    let _ = error_tx
-                        .send(ErrorMessage {
+                    let _ = status_tx
+                        .send(StatusMessage::Error {
                             message: error_message.to_string(),
                             operation: None,
                         })
@@ -262,8 +284,8 @@ async fn process_command(
                 Err(err) => {
                     let error_message = "Could not deserialize binary message";
                     error!(?err, error_message);
-                    let _ = error_tx
-                        .send(ErrorMessage {
+                    let _ = status_tx
+                        .send(StatusMessage::Error {
                             message: error_message.to_string(),
                             operation: None,
                         })

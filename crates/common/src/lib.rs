@@ -64,8 +64,8 @@ pub enum Message {
     /// This contains the result of a GetJson command
     GetJson(Option<serde_json::Value>),
 
-    /// This contains an error state
-    Error(ErrorMessage),
+    /// This contains an status state
+    Status(StatusMessage),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,14 +76,14 @@ pub struct BroadcastMessage {
     pub message: String,
 }
 
-/// This contains an error state
+/// This contains an status state
 ///
 /// `operation` may not be set if it is a serialization error or the operation is unknown for some reason.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct ErrorMessage {
-    pub message: String,
-    pub operation: Option<Command>,
+pub enum StatusMessage {
+    Ok,
+    Error{message: String, operation: Option<Command>},
 }
 
 #[cfg(test)]
