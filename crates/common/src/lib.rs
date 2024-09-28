@@ -16,12 +16,12 @@ pub enum Command {
         channel: String,
         message: String,
     },
-    SetStringDatabase{
+    SetStringDatabase {
         key: String,
         value: String,
     },
-    GetStringDatabase{
-        key: String
+    GetStringDatabase {
+        key: String,
     },
 }
 
@@ -31,7 +31,7 @@ pub enum Command {
 pub enum Message {
     ClientId(String),
     BroadcastMessage(BroadcastMessage),
-    GetString(String),
+    GetString(Option<String>),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -78,6 +78,21 @@ async fn handle_socket(
                                 Ok(_) => info!("Sent broadcast"),
                                 Err(err) => error!(?err, "Could not send broadcast"),
                             },
+                            Command::SetStringDatabase { key, value } => {
+                                state.data_store.string_db.set(key, value, None).await;
+                            },
+                            Command::GetStringDatabase { key } => {
+                                let value = state.data_store.string_db.get(&key).await;
+                                let text = serde_json::to_string(&value);
+                                match text {
+                                    Ok(text) => {
+                                        // TODO: Handle this result beyond logging if possible
+                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send get string message"));
+                                    },
+                                    Err(err) => error!(?err, "Could not serialize broadcast message"),
+                                }
+
+                            },
                         }},
                         None => {
                             info!(?socket_address, client_id, "WS receiver closed");

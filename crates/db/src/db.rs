@@ -149,7 +149,6 @@ mod tests {
         database
             .set("forever".to_string(), "value".to_string(), None)
             .await;
-        println!("{:?}", database.store.data.read().await);
         assert_eq!(database.store.data.read().await.len(), 2);
 
         // Insert another value that expires first
