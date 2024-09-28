@@ -19,7 +19,7 @@ pub enum Error {
 impl Default for DataStore {
     fn default() -> Self {
         Self {
-            broadcast_channel: broadcast::Sender::new(100),
+            broadcast_channel: broadcast::Sender::new(crate::CHANNEL_SIZE),
             string_db: Database::new(),
         }
     }

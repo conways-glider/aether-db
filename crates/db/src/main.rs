@@ -10,6 +10,8 @@ mod db;
 mod store;
 mod ws;
 
+const CHANNEL_SIZE: usize = 1000;
+
 #[derive(Clone)]
 struct AppState {
     pub data_store: DataStore,

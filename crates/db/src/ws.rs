@@ -39,7 +39,7 @@ async fn handle_socket(
     // By splitting socket we can send and receive at the same time. In this example we will send
     // unsolicited messages to client based on some sort of server's internal event (i.e .timer).
     let (mut socket_sender, mut socket_receiver) = socket.split();
-    let (command_tx, mut command_rx) = mpsc::channel(100);
+    let (command_tx, mut command_rx) = mpsc::channel(crate::CHANNEL_SIZE);
     let broadcast_sender = state.data_store.broadcast_channel.clone();
     let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
 
