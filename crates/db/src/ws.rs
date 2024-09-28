@@ -60,14 +60,21 @@ async fn handle_socket(
             debug!("Sent Ping");
         }
 
-        let client_id_json = serde_json::to_string(&Message::ClientId(client_id.clone())).unwrap();
+        let client_id_json = serde_json::to_string(&Message::ClientId(client_id.clone()));
 
-        if let Err(err) = socket_sender
-            .send(WSMessage::Text(client_id_json))
-            .await {
-                error!(?err, "Could not send client_id");
+        match client_id_json {
+            Ok(json) => {
+                // Try sending json and handle the error case
+                if let Err(err) = socket_sender.send(WSMessage::Text(json)).await {
+                    error!(?err, "Could not send client_id to client");
+                    return;
+                }
+            }
+            Err(err) => {
+                error!(?err, "Could not generate client_id json");
                 return;
             }
+        };
 
         // Handle messages
         loop {
