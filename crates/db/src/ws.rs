@@ -270,6 +270,12 @@ fn should_send_message(
     message: &BroadcastMessage,
     subscriptions: &HashMap<String, bool>,
 ) -> bool {
+    // This is some nasty logic
+    // If the channel is `global`, just send the message
+    // Otherwise, check if you're subscribed
+    // If you're subscribed and it's not from you, send it
+    // If you're subscribed and it is from you, check to see if you subscribed to self messages
+    // If you're not subscribed and the channel is not `global`, ignore it
     message.channel == "global"
         || (subscriptions.contains_key(&message.channel)
             && (message.client_id != *client_id
