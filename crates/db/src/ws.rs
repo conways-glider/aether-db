@@ -1,4 +1,4 @@
-use aether_common::{BroadcastMessage, Command, StatusMessage, Message};
+use aether_common::{BroadcastMessage, Command, Message, StatusMessage};
 use axum::{
     extract::{
         ws::{CloseFrame, Message as WSMessage, WebSocket},

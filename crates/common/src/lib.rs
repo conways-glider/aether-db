@@ -83,7 +83,10 @@ pub struct BroadcastMessage {
 #[serde(rename_all = "snake_case")]
 pub enum StatusMessage {
     Ok,
-    Error{message: String, operation: Option<Command>},
+    Error {
+        message: String,
+        operation: Option<Command>,
+    },
 }
 
 #[cfg(test)]
