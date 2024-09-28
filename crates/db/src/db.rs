@@ -35,12 +35,37 @@ impl Database {
     }
 
     pub async fn set(&self, key: String, value: String, expiration: Option<Instant>) {
-        let mut data = self.store.data.write().await;
+        // Get next expiration to see if notification is necessary
+        let next_expiration = self.store.next_expiration().await;
+
+        // Construct the database value
         let value = Value {
             value,
             expiry: expiration,
         };
+
+        // Insert the new data
+        let mut data = self.store.data.write().await;
         data.insert(key, value);
+
+        // Drop data when we're done mutating state.
+        drop(data);
+
+        // Check to see if new expiration is the newest
+        // If it is, notify the expiration checker
+        let should_notify = match (next_expiration, expiration) {
+            // No expirations at all => No notification
+            (None, None) => false,
+            // No current expirations, but there is an expiration in the new value => Notify
+            (None, Some(_)) => true,
+            // Current expirations exist, but no new expiration => No notification
+            (Some(_), None) => false,
+            // Both exist => Only notify if next expiration is the first to occur
+            (Some(next_expiration), Some(expiration)) => expiration < next_expiration,
+        };
+        if should_notify {
+            self.store.background_task.notify_one();
+        }
     }
 }
 
@@ -64,6 +89,7 @@ impl Store {
     async fn remove_expired_values(&self) -> Option<Instant> {
         let mut state = self.data.write().await;
         let now = Instant::now();
+        println!("removing expired values: {:?}", now);
 
         // Remove expired values
         // TODO: This could be more efficient by caching expirations
@@ -100,7 +126,57 @@ mod tests {
     use super::*;
 
     #[tokio::test(start_paused = true)]
-    async fn test_expiration() {
+    async fn test_database_set_expiration() {
+        let short_expiration_time_jump = 5;
+        let long_expiration_time_jump = 10;
+        let time_to_jump = 6;
+
+        let short_future_instant =
+            Instant::now().checked_add(Duration::from_secs(short_expiration_time_jump));
+        let long_future_instant =
+            Instant::now().checked_add(Duration::from_secs(long_expiration_time_jump));
+
+        let database = Database::new();
+
+        // Insert base values, one expiring in the futre
+        database
+            .set(
+                "expire soon".to_string(),
+                "value".to_string(),
+                long_future_instant,
+            )
+            .await;
+        database
+            .set("forever".to_string(), "value".to_string(), None)
+            .await;
+        println!("{:?}", database.store.data.read().await);
+        assert_eq!(database.store.data.read().await.len(), 2);
+
+        // Insert another value that expires first
+        database
+            .set(
+                "expire sooner".to_string(),
+                "value".to_string(),
+                short_future_instant,
+            )
+            .await;
+        assert_eq!(database.store.data.read().await.len(), 3);
+
+        // Advance time until expiration occurs
+        tokio::time::advance(Duration::from_secs(time_to_jump)).await;
+        assert_eq!(database.store.data.read().await.len(), 2);
+
+        // Advance time until expiration occurs
+        tokio::time::advance(Duration::from_secs(time_to_jump)).await;
+
+        // Advance again to allow for the expiration to actually occur
+        // Zero millis to show this is just allowing for channel weirdness to occur
+        tokio::time::advance(Duration::from_millis(0)).await;
+        assert_eq!(database.store.data.read().await.len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_store_expiration() {
         let expiration_time_jump = 10;
         let wait_time_jump = 11;
 
