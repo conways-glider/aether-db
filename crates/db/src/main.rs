@@ -6,6 +6,7 @@ use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod db;
 mod store;
 mod ws;
 
