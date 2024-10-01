@@ -1,14 +1,13 @@
 use axum::{routing::get, Router};
+use db::DataStore;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
-use store::DataStore;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod db;
-mod store;
 mod ws;
+mod db;
 
 // TODO: Make this configurable
 // Also, maybe split it out into a few different values

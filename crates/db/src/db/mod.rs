@@ -1,7 +1,8 @@
 use aether_common::BroadcastMessage;
+use store::Database;
 use tokio::sync::broadcast;
 
-use crate::db::Database;
+mod store;
 
 #[derive(Clone)]
 pub struct DataStore {
