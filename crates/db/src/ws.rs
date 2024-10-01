@@ -45,8 +45,8 @@ async fn handle_socket(
     let broadcast_sender = state.data_store.broadcast_channel.clone();
     let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
 
-    // The bool represents if you receive your own messages.
-    let mut subscriptions: HashMap<String, SubscriptionOptions> = HashMap::new();
+    // Load subscriptions from the database
+    let mut subscriptions: HashMap<String, SubscriptionOptions> = state.data_store.get_subscriptions(&client_id).await;
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
