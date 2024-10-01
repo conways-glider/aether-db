@@ -1,15 +1,18 @@
+use std::{collections::HashMap, sync::{Arc, RwLock}};
+
 use aether_common::BroadcastMessage;
-use store::Database;
+use table::Table;
 use tokio::sync::broadcast;
 
-mod store;
+mod table;
 
 #[derive(Clone)]
-pub struct DataStore {
+pub struct Database {
     // Data
     pub broadcast_channel: broadcast::Sender<BroadcastMessage>,
-    pub string_db: Database<String>,
-    pub json_db: Database<serde_json::Value>,
+    pub subscriptions: Arc<RwLock<HashMap<String, Vec<String>>>>,
+    pub string_db: Table<String>,
+    pub json_db: Table<serde_json::Value>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -18,12 +21,13 @@ pub enum Error {
     BroadcastSendMessage(#[from] broadcast::error::SendError<BroadcastMessage>),
 }
 
-impl Default for DataStore {
+impl Default for Database {
     fn default() -> Self {
         Self {
             broadcast_channel: broadcast::Sender::new(crate::CHANNEL_SIZE),
-            string_db: Database::new(),
-            json_db: Database::new(),
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            string_db: Table::new(),
+            json_db: Table::new(),
         }
     }
 }
