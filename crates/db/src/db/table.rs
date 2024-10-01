@@ -129,11 +129,10 @@ async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     use std::time::Duration as StdDuration;
     use time::Duration;
-
-    use super::*;
 
     #[tokio::test]
     async fn test_database_set_expiration() {
