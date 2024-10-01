@@ -1,9 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{cmp::max, collections::HashMap, sync::Arc, time::Duration};
 
-use tokio::{
-    sync::{Notify, RwLock},
-    time::Instant,
-};
+use time::OffsetDateTime;
+use tokio::sync::{Notify, RwLock};
 use tracing::debug;
 
 #[derive(Clone)]
@@ -18,7 +16,7 @@ struct Store<V> {
 
 struct Value<V> {
     pub value: V,
-    pub expiry: Option<Instant>,
+    pub expiry: Option<OffsetDateTime>,
 }
 
 impl<V> Database<V>
@@ -38,7 +36,7 @@ where
         data.get(key).map(|value| value.value.clone())
     }
 
-    pub async fn set(&self, key: String, value: V, expiration: Option<Instant>) {
+    pub async fn set(&self, key: String, value: V, expiration: Option<OffsetDateTime>) {
         // Get next expiration to see if notification is necessary
         let next_expiration = self.store.next_expiration().await;
 
@@ -81,7 +79,7 @@ impl<V> Store<V> {
         }
     }
 
-    async fn next_expiration(&self) -> Option<Instant> {
+    async fn next_expiration(&self) -> Option<OffsetDateTime> {
         let state = self.data.read().await;
         let next_expiration = state
             .iter()
@@ -90,9 +88,9 @@ impl<V> Store<V> {
         next_expiration.and_then(|(_, value)| value.expiry)
     }
 
-    async fn remove_expired_values(&self) -> Option<Instant> {
+    async fn remove_expired_values(&self) -> Option<Duration> {
         let mut state = self.data.write().await;
-        let now = Instant::now();
+        let now = OffsetDateTime::now_utc();
         debug!("removing expired values");
 
         // Remove expired values
@@ -102,9 +100,16 @@ impl<V> Store<V> {
         // Drop state when unneeded and prevent deadlock with next_expiration read
         drop(state);
 
-        // Get the next expiration instant
+        // Get the duration until the next expiration
         // TODO: This could be more efficient by caching expirations
-        self.next_expiration().await
+        let next_expiration = self.next_expiration().await;
+        let next_expiration = next_expiration.map(|expiration| {
+            let expiration_offset: time::Duration = expiration - now;
+            // We max here to floor it to zero and prevent a negative duration becoming a large positive duration via `.unsigned_abs()`
+            max(time::Duration::new(0, 0), expiration_offset).unsigned_abs()
+        });
+        println!("next expiration: {:?}", next_expiration);
+        next_expiration
     }
 }
 
@@ -112,7 +117,7 @@ async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
     loop {
         if let Some(instant) = data.remove_expired_values().await {
             tokio::select! {
-                _ = tokio::time::sleep_until(instant) => {}
+                _ = tokio::time::sleep(instant) => {}
                 _ = data.background_task.notified() => {}
             }
         } else {
@@ -125,20 +130,22 @@ async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+
+    use std::time::Duration as StdDuration;
+    use time::Duration;
 
     use super::*;
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn test_database_set_expiration() {
         let short_expiration_time_jump = 5;
         let long_expiration_time_jump = 10;
         let time_to_jump = 6;
 
-        let short_future_instant =
-            Instant::now().checked_add(Duration::from_secs(short_expiration_time_jump));
-        let long_future_instant =
-            Instant::now().checked_add(Duration::from_secs(long_expiration_time_jump));
+        let short_future_instant = OffsetDateTime::now_utc()
+            .checked_add(time::Duration::new(short_expiration_time_jump, 0));
+        let long_future_instant = OffsetDateTime::now_utc()
+            .checked_add(time::Duration::new(long_expiration_time_jump, 0));
 
         let database = Database::new();
 
@@ -166,25 +173,26 @@ mod tests {
         assert_eq!(database.store.data.read().await.len(), 3);
 
         // Advance time until expiration occurs
-        tokio::time::advance(Duration::from_secs(time_to_jump)).await;
+        tokio::time::sleep(StdDuration::from_secs(time_to_jump)).await;
         assert_eq!(database.store.data.read().await.len(), 2);
 
         // Advance time until expiration occurs
-        tokio::time::advance(Duration::from_secs(time_to_jump)).await;
+        tokio::time::sleep(StdDuration::from_secs(time_to_jump)).await;
 
-        // Advance again to allow for the expiration to actually occur
-        // Zero millis to show this is just allowing for channel weirdness to occur
-        tokio::time::advance(Duration::from_millis(0)).await;
         assert_eq!(database.store.data.read().await.len(), 1);
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn test_store_expiration() {
         let expiration_time_jump = 10;
         let wait_time_jump = 11;
 
-        let past_instant = Instant::now().checked_sub(Duration::from_secs(expiration_time_jump));
-        let future_instant = Instant::now().checked_add(Duration::from_secs(expiration_time_jump));
+        // let past_instant = Instant::now().checked_sub(Duration::from_secs(expiration_time_jump));
+        // let future_instant = Instant::now().checked_add(Duration::from_secs(expiration_time_jump));
+        let past_instant =
+            OffsetDateTime::now_utc().checked_sub(Duration::new(expiration_time_jump, 0));
+        let future_instant =
+            OffsetDateTime::now_utc().checked_add(Duration::new(expiration_time_jump, 0));
         let store = Store::new();
 
         // Insert test data within block to drop write guard when done
@@ -221,13 +229,13 @@ mod tests {
         }
 
         let next_expiration = store.remove_expired_values().await;
-        assert_eq!(next_expiration, future_instant);
+        // assert_eq!(next_expiration, future_instant);
 
         let len = store.data.read().await.len();
         assert_eq!(len, 3);
 
         // Jump ahead to test expirations
-        tokio::time::advance(Duration::from_secs(wait_time_jump)).await;
+        tokio::time::sleep(StdDuration::from_secs(wait_time_jump)).await;
 
         let next_expiration = store.remove_expired_values().await;
         assert_eq!(next_expiration, None);

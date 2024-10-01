@@ -7,10 +7,9 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use std::{
-    borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc, time::Duration,
-};
-use tokio::{select, sync::mpsc, time::Instant};
+use std::{borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc};
+use time::{Duration, OffsetDateTime};
+use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, instrument};
 
 use crate::{AppState, ClientID};
@@ -92,8 +91,9 @@ async fn handle_socket(
                             },
                             Command::SetString { key, value, expiration } => {
                                 let expiration = expiration.and_then(|expiration_seconds| {
-                                    let expiration_duration = Duration::from_secs(expiration_seconds as u64);
-                                    Instant::now().checked_add(expiration_duration)
+                                    // let expiration_duration = Duration::from_secs(expiration_seconds as u64);
+                                    // Instant::now().checked_add(expiration_duration)
+                                    OffsetDateTime::now_utc().checked_add(Duration::new(expiration_seconds as i64, 0))
                                 });
                                 state.data_store.string_db.set(key, value, expiration).await;
 
@@ -122,8 +122,9 @@ async fn handle_socket(
                             },
                             Command::SetJson { key, value, expiration } => {
                                 let expiration = expiration.and_then(|expiration_seconds| {
-                                    let expiration_duration = Duration::from_secs(expiration_seconds as u64);
-                                    Instant::now().checked_add(expiration_duration)
+                                    // let expiration_duration = Duration::from_secs(expiration_seconds as u64);
+                                    // Instant::now().checked_add(expiration_duration)
+                                    OffsetDateTime::now_utc().checked_add(Duration::new(expiration_seconds as i64, 0))
                                 });
                                 state.data_store.json_db.set(key, value, expiration).await;
 
