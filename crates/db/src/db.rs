@@ -100,16 +100,13 @@ impl<V> Store<V> {
         // Drop state when unneeded and prevent deadlock with next_expiration read
         drop(state);
 
-        // Get the duration until the next expiration
+        // Get the duration until the next expiration for tokio::time::sleep
         // TODO: This could be more efficient by caching expirations
-        let next_expiration = self.next_expiration().await;
-        let next_expiration = next_expiration.map(|expiration| {
+        self.next_expiration().await.map(|expiration| {
             let expiration_offset: time::Duration = expiration - now;
-            // We max here to floor it to zero and prevent a negative duration becoming a large positive duration via `.unsigned_abs()`
+            // We max here to floor it to zero and prevent a negative duration becoming a large positive duration via `.unsigned_abs()`.
             max(time::Duration::new(0, 0), expiration_offset).unsigned_abs()
-        });
-        println!("next expiration: {:?}", next_expiration);
-        next_expiration
+        })
     }
 }
 
@@ -117,6 +114,8 @@ async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
     loop {
         if let Some(instant) = data.remove_expired_values().await {
             tokio::select! {
+                // Hope to switch this call to `sleep_until` as it seems cleaner.
+                // This depends on better time handling.
                 _ = tokio::time::sleep(instant) => {}
                 _ = data.background_task.notified() => {}
             }
@@ -187,8 +186,6 @@ mod tests {
         let expiration_time_jump = 10;
         let wait_time_jump = 11;
 
-        // let past_instant = Instant::now().checked_sub(Duration::from_secs(expiration_time_jump));
-        // let future_instant = Instant::now().checked_add(Duration::from_secs(expiration_time_jump));
         let past_instant =
             OffsetDateTime::now_utc().checked_sub(Duration::new(expiration_time_jump, 0));
         let future_instant =
@@ -228,9 +225,7 @@ mod tests {
             );
         }
 
-        let next_expiration = store.remove_expired_values().await;
-        // assert_eq!(next_expiration, future_instant);
-
+        store.remove_expired_values().await;
         let len = store.data.read().await.len();
         assert_eq!(len, 3);
 
