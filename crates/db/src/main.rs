@@ -6,8 +6,8 @@ use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod ws;
 mod db;
+mod ws;
 
 // TODO: Make this configurable
 // Also, maybe split it out into a few different values
