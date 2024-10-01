@@ -12,7 +12,7 @@ use time::{Duration, OffsetDateTime};
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, instrument};
 
-use crate::{AppState, ClientID};
+use crate::{db::SubscriptionOptions, AppState, ClientID};
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -46,7 +46,7 @@ async fn handle_socket(
     let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
 
     // The bool represents if you receive your own messages.
-    let mut subscriptions: HashMap<String, bool> = HashMap::new();
+    let mut subscriptions: HashMap<String, SubscriptionOptions> = HashMap::new();
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
@@ -83,8 +83,17 @@ async fn handle_socket(
                     match possible_command {
                         Some(command) => {
                         match command {
-                            Command::SubscribeBroadcast{ channel, subscribe_to_self } => {subscriptions.insert(channel, subscribe_to_self);},
-                            Command::UnsubscribeBroadcast(channel) => {subscriptions.remove(&channel);},
+                            Command::SubscribeBroadcast{ channel, subscribe_to_self } => {
+                                let subscription = SubscriptionOptions { subscribe_to_self };
+                                subscriptions.insert(channel.clone(), subscription.clone());
+                                state.data_store.add_subscription(client_id.clone(), channel, subscription).await;
+                            },
+                            Command::UnsubscribeBroadcast(channel) => {
+                                subscriptions.remove(&channel);
+                                // state.data_store.d(client_id.clone(), subscription).await;
+                                state.data_store.remove_subscription(client_id.clone(), &channel).await;
+
+                            },
                             Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ client_id: client_id.clone(), channel, message }) {
                                 Ok(_) => info!("Sent broadcast"),
                                 Err(err) => error!(?err, "Could not send broadcast"),
@@ -322,7 +331,7 @@ async fn process_command(
 fn should_send_message(
     client_id: &String,
     message: &BroadcastMessage,
-    subscriptions: &HashMap<String, bool>,
+    subscriptions: &HashMap<String, SubscriptionOptions>,
 ) -> bool {
     // This is some nasty logic
     // If the channel is `global`, just send the message
@@ -333,5 +342,8 @@ fn should_send_message(
     message.channel == "global"
         || (subscriptions.contains_key(&message.channel)
             && (message.client_id != *client_id
-                || *subscriptions.get(&message.channel).unwrap_or(&false)))
+                || *subscriptions
+                    .get(&message.channel)
+                    .map(|sub| &sub.subscribe_to_self)
+                    .unwrap_or(&false)))
 }
