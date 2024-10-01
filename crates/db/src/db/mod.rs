@@ -32,9 +32,14 @@ impl Database {
             .push(subscription);
     }
 
-    pub async fn get_subscriptions(&self, client_id: String) -> Vec<String> {
+    pub async fn get_subscriptions(&self, client_id: &str) -> Vec<String> {
         let subscriptions = self.subscriptions.read().await;
-        subscriptions.get(&client_id).cloned().unwrap_or_default()
+        subscriptions.get(client_id).cloned().unwrap_or_default()
+    }
+
+    pub async fn clear_subscriptions(&self, client_id: &str) {
+        let mut subscriptions = self.subscriptions.write().await;
+        subscriptions.remove(client_id);
     }
 }
 
@@ -61,7 +66,11 @@ mod tests {
         database
             .add_subscription(client_id.clone(), subscription.clone())
             .await;
-        let subscriptions = database.get_subscriptions(client_id).await;
-        assert_eq!(subscriptions, vec![subscription])
+        let subscriptions = database.get_subscriptions(&client_id).await;
+        assert_eq!(subscriptions, vec![subscription]);
+
+        database.clear_subscriptions(&client_id).await;
+        let subscriptions = database.get_subscriptions(&client_id).await;
+        assert_eq!(subscriptions, Vec::<String>::new());
     }
 }
