@@ -91,7 +91,6 @@ async fn handle_socket(
                             },
                             Command::UnsubscribeBroadcast(channel) => {
                                 subscriptions.remove(&channel);
-                                // state.data_store.d(client_id.clone(), subscription).await;
                                 state.data_store.remove_subscription(client_id.clone(), &channel).await;
 
                             },
