@@ -1,9 +1,13 @@
+// #![doc = include_str!("../README.md")]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+
 use axum::{routing::get, Router};
 use db::{remove_expired_entries, Database};
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::debug;
+use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod db;
@@ -53,17 +57,20 @@ async fn main() {
         .with_state(app_state);
 
     // run the server
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .expect("could not bind to address");
-    debug!(
-        "Listening on {}",
-        listener.local_addr().expect("could not get local address")
-    );
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .expect("could not start server");
+    match tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await {
+            Ok(listener) => {
+                debug!(
+                    "Listening on {:?}",
+                    listener.local_addr()
+                );
+                let _ = axum::serve(
+                    listener,
+                    app.into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .await.inspect_err(|err| error!(?err, "could not start server"));
+            },
+            Err(err) => error!(?err, "could not bind to address"),
+        };
+
 }
