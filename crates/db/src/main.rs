@@ -1,13 +1,12 @@
 use axum::{routing::get, Router};
+use db::Database;
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
-use store::DataStore;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod db;
-mod store;
 mod ws;
 
 // TODO: Make this configurable
@@ -16,7 +15,7 @@ const CHANNEL_SIZE: usize = 1000;
 
 #[derive(Clone)]
 struct AppState {
-    pub data_store: DataStore,
+    pub data_store: Database,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,7 +39,7 @@ async fn main() {
     // set up our app state
     // this contains our runtime data and configs
     let app_state = Arc::new(AppState {
-        data_store: DataStore::default(),
+        data_store: Database::default(),
     });
 
     // set up routing and middleware

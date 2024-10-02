@@ -5,7 +5,7 @@ use tokio::sync::{Notify, RwLock};
 use tracing::debug;
 
 #[derive(Clone)]
-pub struct Database<V> {
+pub struct Table<V> {
     store: Arc<Store<V>>,
 }
 
@@ -19,12 +19,12 @@ struct Value<V> {
     pub expiry: Option<OffsetDateTime>,
 }
 
-impl<V> Database<V>
+impl<V> Table<V>
 where
     V: Clone + Send + Sync + 'static,
 {
-    pub fn new() -> Database<V> {
-        let db = Database {
+    pub fn new() -> Table<V> {
+        let db = Table {
             store: Arc::new(Store::new()),
         };
         tokio::spawn(remove_expired_entries(db.store.clone()));
@@ -129,11 +129,10 @@ async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     use std::time::Duration as StdDuration;
     use time::Duration;
-
-    use super::*;
 
     #[tokio::test]
     async fn test_database_set_expiration() {
@@ -146,7 +145,7 @@ mod tests {
         let long_future_instant = OffsetDateTime::now_utc()
             .checked_add(time::Duration::new(long_expiration_time_jump, 0));
 
-        let database = Database::new();
+        let database = Table::new();
 
         // Insert base values, one expiring in the futre
         database
