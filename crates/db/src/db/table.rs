@@ -5,25 +5,28 @@ use tokio::sync::{Notify, RwLock};
 use tracing::debug;
 
 #[derive(Clone)]
-pub struct Table<V> {
-    store: Arc<Store<V>>,
+pub struct Table {
+    store: Arc<Store>,
 }
 
-struct Store<V> {
-    data: RwLock<HashMap<String, Value<V>>>,
+struct Store {
+    data: RwLock<HashMap<String, Value>>,
     background_task: Notify,
 }
 
-struct Value<V> {
-    pub value: V,
+#[derive(Clone)]
+struct Value {
+    pub value: Data,
     pub expiry: Option<OffsetDateTime>,
 }
 
-impl<V> Table<V>
-where
-    V: Clone + Send + Sync + 'static,
-{
-    pub fn new() -> Table<V> {
+#[derive(Clone)]
+enum Data {
+    String(String)
+}
+
+impl Table {
+    pub fn new() -> Table {
         let db = Table {
             store: Arc::new(Store::new()),
         };
@@ -31,31 +34,25 @@ where
         db
     }
 
-    pub async fn get(&self, key: &str) -> Option<V> {
+    pub async fn get(&self, key: &str) -> Option<Value> {
         let data = self.store.data.read().await;
-        data.get(key).map(|value| value.value.clone())
+        data.get(key).map(|value| value.clone())
     }
 
-    pub async fn set(&self, key: String, value: V, expiration: Option<OffsetDateTime>) {
+    pub async fn set(&self, key: String, value: Value) {
         // Get next expiration to see if notification is necessary
         let next_expiration = self.store.next_expiration().await;
 
-        // Construct the database value
-        let value = Value {
-            value,
-            expiry: expiration,
-        };
-
         // Insert the new data
         let mut data = self.store.data.write().await;
-        data.insert(key, value);
+        data.insert(key, value.clone());
 
         // Drop data when we're done mutating state.
         drop(data);
 
         // Check to see if new expiration is the newest
         // If it is, notify the expiration checker
-        let should_notify = match (next_expiration, expiration) {
+        let should_notify = match (next_expiration, value.expiry) {
             // No expirations at all => No notification
             (None, None) => false,
             // No current expirations, but there is an expiration in the new value => Notify
@@ -71,8 +68,8 @@ where
     }
 }
 
-impl<V> Store<V> {
-    fn new() -> Store<V> {
+impl Store {
+    fn new() -> Store {
         Store {
             data: RwLock::new(HashMap::new()),
             background_task: Notify::new(),
@@ -110,7 +107,7 @@ impl<V> Store<V> {
     }
 }
 
-async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
+async fn remove_expired_entries(data: Arc<Store>) {
     loop {
         if let Some(instant) = data.remove_expired_values().await {
             tokio::select! {
