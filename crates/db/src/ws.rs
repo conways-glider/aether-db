@@ -102,7 +102,7 @@ async fn handle_socket(
                             Command::Set { key, value } => {
                                 // state.data_store.string_db.set(key, value, expiration).await;
                                 let db_value = Value::try_from(value).unwrap();
-                                state.database.db.insert(key, db_value);
+                                state.database.insert(key, db_value);
 
                                 // Return Ok
                                 let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
@@ -116,7 +116,7 @@ async fn handle_socket(
                                 }
                             },
                             Command::Get { key } => {
-                                let value = state.database.db.get(&key).map(|e| e.clone());
+                                let value = state.database.get(&key);
                                 let data_string = value.map(|inner_val| {
                                     serde_json::to_string(&inner_val).unwrap()
                                 });
