@@ -1,4 +1,8 @@
-use aether_common::{BroadcastMessage, Command, Message, StatusMessage};
+use aether_common::{
+    command::Command,
+    db::{BroadcastMessage, Value},
+    message::{Message, StatusMessage},
+};
 use axum::{
     extract::{
         ws::{CloseFrame, Message as WSMessage, WebSocket},
@@ -8,7 +12,6 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use std::{borrow::Cow, collections::HashMap, net::SocketAddr, ops::ControlFlow, sync::Arc};
-use time::{Duration, OffsetDateTime};
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, instrument};
 
@@ -98,55 +101,33 @@ async fn handle_socket(
                                 Ok(_) => info!("Sent broadcast"),
                                 Err(err) => error!(?err, "Could not send broadcast"),
                             },
-                            Command::SetString { key, value, expiration } => {
-                                let expiration = expiration.and_then(|expiration_seconds| {
-                                    OffsetDateTime::now_utc().checked_add(Duration::new(expiration_seconds as i64, 0))
-                                });
-                                state.data_store.string_db.set(key, value, expiration).await;
+                            Command::Set { key, value } => {
+                                let value = Value::try_from(value);
+                                match value {
+                                    Ok(value) => {
+                                        state.data_store.db.set(key, value).await;
 
-                                // Return Ok
-                                let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
-                                // TODO: Handle this result beyond logging if possible
-                                match text {
-                                    Ok(text) => {
+                                        // Return Ok
+                                        let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
                                         // TODO: Handle this result beyond logging if possible
-                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set string message"));
+                                        match text {
+                                            Ok(text) => {
+                                                // TODO: Handle this result beyond logging if possible
+                                                let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set string message"));
+                                            },
+                                            Err(err) => error!(?err, "Could not serialize set string message"),
+                                        }
                                     },
-                                    Err(err) => error!(?err, "Could not serialize set string message"),
-                                }
-                            },
-                            Command::GetString { key } => {
-                                let value = state.data_store.string_db.get(&key).await;
-                                let text = serde_json::to_string(&Message::GetString(value));
-                                match text {
-                                    Ok(text) => {
-                                        // TODO: Handle this result beyond logging if possible
-                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send get string message"));
+                                    Err(err) => {
+                                        // TODO: Handle separate errors here
+                                        error!(?err, "could not get value");
                                     },
-                                    Err(err) => error!(?err, "Could not serialize broadcast message"),
-                                }
+                                };
 
                             },
-                            Command::SetJson { key, value, expiration } => {
-                                let expiration = expiration.and_then(|expiration_seconds| {
-                                    OffsetDateTime::now_utc().checked_add(Duration::new(expiration_seconds as i64, 0))
-                                });
-                                state.data_store.json_db.set(key, value, expiration).await;
-
-                                // Return Ok
-                                let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
-                                // TODO: Handle this result beyond logging if possible
-                                match text {
-                                    Ok(text) => {
-                                        // TODO: Handle this result beyond logging if possible
-                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set json message"));
-                                    },
-                                    Err(err) => error!(?err, "Could not serialize set json message"),
-                                }
-                            },
-                            Command::GetJson { key } => {
-                                let value = state.data_store.json_db.get(&key).await;
-                                let text = serde_json::to_string(&Message::GetJson(value));
+                            Command::Get { key } => {
+                                let value = state.data_store.db.get(&key).await;
+                                let text = serde_json::to_string(&Message::Get(value));
                                 match text {
                                     Ok(text) => {
                                         // TODO: Handle this result beyond logging if possible

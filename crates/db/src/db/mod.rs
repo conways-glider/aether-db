@@ -1,6 +1,6 @@
+use aether_common::db::BroadcastMessage;
 use std::{collections::HashMap, sync::Arc};
 
-use aether_common::BroadcastMessage;
 use table::Table;
 use tokio::sync::{broadcast, RwLock};
 
@@ -13,8 +13,7 @@ pub struct Database {
     // TODO: Add get current subscriptions command
     // TODO: Add clear all subscriptions command
     pub subscriptions: Arc<RwLock<HashMap<String, HashMap<String, SubscriptionOptions>>>>,
-    pub string_db: Table<String>,
-    pub json_db: Table<serde_json::Value>,
+    pub db: Table,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,8 +63,7 @@ impl Default for Database {
         Self {
             broadcast_channel: broadcast::Sender::new(crate::CHANNEL_SIZE),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
-            string_db: Table::new(),
-            json_db: Table::new(),
+            db: Table::new(),
         }
     }
 }
