@@ -9,11 +9,11 @@ mod table;
 #[derive(Clone)]
 pub struct Database {
     // Data
+    pub db: Table,
     pub broadcast_channel: broadcast::Sender<BroadcastMessage>,
     // TODO: Add get current subscriptions command
     // TODO: Add clear all subscriptions command
-    pub subscriptions: Arc<RwLock<HashMap<String, HashMap<String, SubscriptionOptions>>>>,
-    pub db: Table,
+    subscriptions: Arc<RwLock<HashMap<String, HashMap<String, SubscriptionOptions>>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
