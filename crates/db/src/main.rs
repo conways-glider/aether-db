@@ -57,20 +57,16 @@ async fn main() {
         .with_state(app_state);
 
     // run the server
-    match tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await {
-            Ok(listener) => {
-                debug!(
-                    "Listening on {:?}",
-                    listener.local_addr()
-                );
-                let _ = axum::serve(
-                    listener,
-                    app.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await.inspect_err(|err| error!(?err, "could not start server"));
-            },
-            Err(err) => error!(?err, "could not bind to address"),
-        };
-
+    match tokio::net::TcpListener::bind("127.0.0.1:3000").await {
+        Ok(listener) => {
+            debug!("Listening on {:?}", listener.local_addr());
+            let _ = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .inspect_err(|err| error!(?err, "could not start server"));
+        }
+        Err(err) => error!(?err, "could not bind to address"),
+    };
 }
