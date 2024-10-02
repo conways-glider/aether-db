@@ -43,12 +43,12 @@ async fn handle_socket(
     let (mut socket_sender, mut socket_receiver) = socket.split();
     let (command_tx, mut command_rx) = mpsc::channel(crate::CHANNEL_SIZE);
     let (status_tx, mut status_rx) = mpsc::channel(crate::CHANNEL_SIZE);
-    let broadcast_sender = state.data_store.broadcast_channel.clone();
-    let mut broadcast_receiver = state.data_store.broadcast_channel.subscribe();
+    let broadcast_sender = state.database.broadcast_channel.clone();
+    let mut broadcast_receiver = state.database.broadcast_channel.subscribe();
 
     // Load subscriptions from the database
     let mut subscriptions: HashMap<String, SubscriptionOptions> =
-        state.data_store.get_subscriptions(&client_id).await;
+        state.database.get_subscriptions(&client_id).await;
 
     // Spawn a task that will push several messages to the client (does not matter what client does)
     let mut send_task = tokio::spawn(async move {
@@ -88,11 +88,11 @@ async fn handle_socket(
                             Command::SubscribeBroadcast{ channel, subscribe_to_self } => {
                                 let subscription = SubscriptionOptions { subscribe_to_self };
                                 subscriptions.insert(channel.clone(), subscription.clone());
-                                state.data_store.add_subscription(client_id.clone(), channel, subscription).await;
+                                state.database.add_subscription(client_id.clone(), channel, subscription).await;
                             },
                             Command::UnsubscribeBroadcast(channel) => {
                                 subscriptions.remove(&channel);
-                                state.data_store.remove_subscription(client_id.clone(), &channel).await;
+                                state.database.remove_subscription(client_id.clone(), &channel).await;
 
                             },
                             Command::SendBroadcast { channel, message } => match broadcast_sender.send(BroadcastMessage{ client_id: client_id.clone(), channel, message }) {
@@ -102,7 +102,7 @@ async fn handle_socket(
                             Command::Set { key, value } => {
                                 // state.data_store.string_db.set(key, value, expiration).await;
                                 let db_value = Value::try_from(value).unwrap();
-                                state.data_store.db.insert(key, db_value);
+                                state.database.db.insert(key, db_value);
 
                                 // Return Ok
                                 let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
@@ -116,7 +116,7 @@ async fn handle_socket(
                                 }
                             },
                             Command::Get { key } => {
-                                let value = state.data_store.db.get(&key).map(|e| e.clone());
+                                let value = state.database.db.get(&key).map(|e| e.clone());
                                 let data_string = value.map(|inner_val| {
                                     serde_json::to_string(&inner_val).unwrap()
                                 });

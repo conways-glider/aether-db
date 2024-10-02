@@ -1,10 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{cmp::max, collections::HashMap, sync::Arc, time::Duration};
 
 use aether_common::db::{BroadcastMessage, Value};
 use dashmap::DashMap;
-use tokio::sync::{broadcast, RwLock};
+use time::OffsetDateTime;
+use tokio::sync::{broadcast, Notify, RwLock};
+use tracing::debug;
 
-#[derive(Clone)]
 pub struct Database {
     // Data
     pub broadcast_channel: broadcast::Sender<BroadcastMessage>,
@@ -12,6 +13,7 @@ pub struct Database {
     // TODO: Add clear all subscriptions command
     pub subscriptions: Arc<RwLock<HashMap<String, HashMap<String, SubscriptionOptions>>>>,
     pub db: Arc<DashMap<String, Value>>,
+    expiry_notification: Notify,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -54,6 +56,50 @@ impl Database {
         let mut subscriptions = self.subscriptions.write().await;
         subscriptions.remove(client_id);
     }
+
+    async fn next_expiration(&self) -> Option<OffsetDateTime> {
+        let next_expiration = self
+            .db
+            .iter()
+            .filter(|entry| entry.expiry.is_some())
+            .min_by_key(|entry| entry.expiry);
+        next_expiration.and_then(|entry| entry.expiry)
+    }
+
+    async fn remove_expired_values(&self) -> Option<Duration> {
+        let now = OffsetDateTime::now_utc();
+        debug!("removing expired values");
+
+        // Remove expired values
+        // TODO: This could be more efficient by caching expirations
+        self.db
+            .retain(|_, value| value.expiry.map_or(true, |expiry| now <= expiry));
+
+        // Get the duration until the next expiration for tokio::time::sleep
+        // TODO: This could be more efficient by caching expirations
+        self.next_expiration().await.map(|expiration| {
+            let expiration_offset: time::Duration = expiration - now;
+            // We max here to floor it to zero and prevent a negative duration becoming a large positive duration via `.unsigned_abs()`.
+            max(time::Duration::new(0, 0), expiration_offset).unsigned_abs()
+        })
+    }
+}
+
+pub(crate) async fn remove_expired_entries(database: Arc<Database>) {
+    loop {
+        if let Some(instant) = database.remove_expired_values().await {
+            tokio::select! {
+                // Hope to switch this call to `sleep_until` as it seems cleaner.
+                // This depends on better time handling.
+                _ = tokio::time::sleep(instant) => {}
+                _ = database.expiry_notification.notified() => {}
+            }
+        } else {
+            // There are no keys expiring in the future. Wait until the task is
+            // notified.
+            database.expiry_notification.notified().await;
+        }
+    }
 }
 
 impl Default for Database {
@@ -62,6 +108,7 @@ impl Default for Database {
             broadcast_channel: broadcast::Sender::new(crate::CHANNEL_SIZE),
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             db: Arc::new(DashMap::new()),
+            expiry_notification: Notify::new(),
         }
     }
 }

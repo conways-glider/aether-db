@@ -1,5 +1,5 @@
 use axum::{routing::get, Router};
-use db::Database;
+use db::{remove_expired_entries, Database};
 use serde::Deserialize;
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
@@ -15,7 +15,7 @@ const CHANNEL_SIZE: usize = 1000;
 
 #[derive(Clone)]
 struct AppState {
-    pub data_store: Database,
+    pub database: Arc<Database>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,11 +36,15 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let database = Arc::new(Database::default());
+
     // set up our app state
     // this contains our runtime data and configs
     let app_state = Arc::new(AppState {
-        data_store: Database::default(),
+        database: database.clone(),
     });
+
+    tokio::spawn(remove_expired_entries(database));
 
     // set up routing and middleware
     let app = Router::new()
