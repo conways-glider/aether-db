@@ -2,7 +2,10 @@ use aether_common::db::Value;
 use std::{cmp::max, collections::HashMap, sync::Arc, time::Duration};
 
 use time::OffsetDateTime;
-use tokio::sync::{Notify, RwLock};
+use tokio::{
+    select,
+    sync::{Notify, RwLock},
+};
 use tracing::debug;
 
 #[derive(Clone)]
@@ -101,7 +104,7 @@ impl Store {
 async fn remove_expired_entries(data: Arc<Store>) {
     loop {
         if let Some(instant) = data.remove_expired_values().await {
-            tokio::select! {
+            select! {
                 // Hope to switch this call to `sleep_until` as it seems cleaner.
                 // This depends on better time handling.
                 _ = tokio::time::sleep(instant) => {}

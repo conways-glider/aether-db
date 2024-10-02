@@ -192,7 +192,7 @@ async fn handle_socket(
     let mut receive_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = socket_receiver.next().await {
             // print message and break if instructed to do so
-            if process_command(msg, socket_address, &command_tx, &status_tx)
+            if process_message(msg, socket_address, &command_tx, &status_tx)
                 .await
                 .is_break()
             {
@@ -202,7 +202,7 @@ async fn handle_socket(
     });
 
     // If any one of the tasks exit, abort the other.
-    tokio::select! {
+    select! {
         rv_a = (&mut send_task) => {
             match rv_a {
                 Ok(()) => info!("send_task returned Ok"),
@@ -224,7 +224,7 @@ async fn handle_socket(
 }
 
 #[instrument(skip(msg, command_tx, status_tx))]
-async fn process_command(
+async fn process_message(
     msg: WSMessage,
     socket_address: SocketAddr,
     command_tx: &mpsc::Sender<Command>,
