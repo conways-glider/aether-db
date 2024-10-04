@@ -102,27 +102,19 @@ async fn handle_socket(
                                 Err(err) => error!(?err, "Could not send broadcast"),
                             },
                             Command::Set { key, value } => {
-                                let value = Value::try_from(value);
-                                match value {
-                                    Ok(value) => {
-                                        state.data_store.db.set(key, value).await;
+                                let db_value = Value::from(value.clone());
+                                state.data_store.db.set(key, db_value).await;
 
-                                        // Return Ok
-                                        let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
+                                // Return Ok
+                                let text = serde_json::to_string(&Message::Status(StatusMessage::Ok));
+                                // TODO: Handle this result beyond logging if possible
+                                match text {
+                                    Ok(text) => {
                                         // TODO: Handle this result beyond logging if possible
-                                        match text {
-                                            Ok(text) => {
-                                                // TODO: Handle this result beyond logging if possible
-                                                let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set string message"));
-                                            },
-                                            Err(err) => error!(?err, "Could not serialize set string message"),
-                                        }
+                                        let _ = socket_sender.send(WSMessage::Text(text)).await.inspect_err(|err| error!(?err, "Could not send set string message"));
                                     },
-                                    Err(err) => {
-                                        // TODO: Handle separate errors here
-                                        error!(?err, "could not get value");
-                                    },
-                                };
+                                    Err(err) => error!(?err, "Could not serialize set string message"),
+                                }
 
                             },
                             Command::Get { key } => {

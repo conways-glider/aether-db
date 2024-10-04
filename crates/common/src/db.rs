@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,20 +31,14 @@ pub enum Error {
     DoubleExpirationDefined,
 }
 
-impl TryFrom<crate::command::Value> for Value {
-    type Error = Error;
-
-    fn try_from(value: crate::command::Value) -> Result<Self, Self::Error> {
-        if value.expire.is_some() && value.until_expiry.is_some() {
-            Err(Error::DoubleExpirationDefined)
-        } else {
-            let expiry = value.expire.or(value
-                .until_expiry
-                .and_then(|duration| OffsetDateTime::now_utc().checked_add(duration)));
-            Ok(Value {
-                data: value.data,
-                expiry,
-            })
+impl From<crate::command::Value> for Value {
+    fn from(value: crate::command::Value) -> Self {
+        let expiry = value.expiry.and_then(|seconds| {
+            OffsetDateTime::now_utc().checked_add(Duration::new(seconds as i64, 0))
+        });
+        Self {
+            data: value.data,
+            expiry,
         }
     }
 }

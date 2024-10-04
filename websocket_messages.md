@@ -26,7 +26,7 @@ This document details the socket messages that may be sent for testing purposes.
 ### Set
 
 ```json
-{"set": {"key":"test", "value":{ "data": {"string": "test"}}}}
+{"set": {"key":"test", "value":{ "data": {"string": "test"}, "expiry": 10}}}
 {"set": {"key":"test", "value":{ "data": {"json": { "test_key": "test_value"}}}}}
 {"set": {"key":"test", "value":{ "data": {"int": 1}}}}
 ```

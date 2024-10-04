@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use time::{Duration, OffsetDateTime};
 
 use crate::db::Data;
 
@@ -44,6 +43,5 @@ pub enum Command {
 #[serde(rename_all = "snake_case")]
 pub struct Value {
     pub data: Data,
-    pub expire: Option<OffsetDateTime>,
-    pub until_expiry: Option<Duration>,
+    pub expiry: Option<u32>,
 }
