@@ -21,23 +21,18 @@ This document details the socket messages that may be sent for testing purposes.
 {"unsubscribe_broadcast": "testing"}
 ```
 
-## String Database
+## Database
+
+### Set
 
 ```json
-{"set_string": {"key":"test", "value":"value"}}
-{"set_string": {"key":"expire", "value":"value", "expiration": 20}}
-{"get_string": {"key":"test"}}
-{"get_string": {"key":"expire"}}
+{"set": {"key":"test", "value":{ "data": {"string": "test"}, "expiry": 10}}}
+{"set": {"key":"test", "value":{ "data": {"json": { "test_key": "test_value"}}}}}
+{"set": {"key":"test", "value":{ "data": {"int": 1}}}}
 ```
 
-## JSON Database
+### Get
 
 ```json
-{"set_json": {"key":"test", "value":"value"}}
-{"set_json": {"key":"test_object", "value":{ "nested_value": "value" }}}
-{"set_json": {"key":"bad_json", "value":{ "nested_value": "value" }}
-{"set_json": {"key":"expire", "value":"value", "expiration": 20}}
-{"get_json": {"key":"test"}}
-{"get_json": {"key":"test_object"}}
-{"get_json": {"key":"expire"}}
+{"get": {"key":"test"}}
 ```

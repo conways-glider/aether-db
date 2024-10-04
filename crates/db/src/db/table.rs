@@ -1,29 +1,25 @@
+use aether_common::db::Value;
 use std::{cmp::max, collections::HashMap, sync::Arc, time::Duration};
 
 use time::OffsetDateTime;
-use tokio::sync::{Notify, RwLock};
+use tokio::{
+    select,
+    sync::{Notify, RwLock},
+};
 use tracing::debug;
 
 #[derive(Clone)]
-pub struct Table<V> {
-    store: Arc<Store<V>>,
+pub struct Table {
+    store: Arc<Store>,
 }
 
-struct Store<V> {
-    data: RwLock<HashMap<String, Value<V>>>,
+struct Store {
+    data: RwLock<HashMap<String, Value>>,
     background_task: Notify,
 }
 
-struct Value<V> {
-    pub value: V,
-    pub expiry: Option<OffsetDateTime>,
-}
-
-impl<V> Table<V>
-where
-    V: Clone + Send + Sync + 'static,
-{
-    pub fn new() -> Table<V> {
+impl Table {
+    pub fn new() -> Table {
         let db = Table {
             store: Arc::new(Store::new()),
         };
@@ -31,31 +27,18 @@ where
         db
     }
 
-    pub async fn get(&self, key: &str) -> Option<V> {
+    pub async fn get(&self, key: &str) -> Option<Value> {
         let data = self.store.data.read().await;
-        data.get(key).map(|value| value.value.clone())
+        data.get(key).cloned()
     }
 
-    pub async fn set(&self, key: String, value: V, expiration: Option<OffsetDateTime>) {
+    pub async fn set(&self, key: String, value: Value) {
         // Get next expiration to see if notification is necessary
         let next_expiration = self.store.next_expiration().await;
 
-        // Construct the database value
-        let value = Value {
-            value,
-            expiry: expiration,
-        };
-
-        // Insert the new data
-        let mut data = self.store.data.write().await;
-        data.insert(key, value);
-
-        // Drop data when we're done mutating state.
-        drop(data);
-
         // Check to see if new expiration is the newest
         // If it is, notify the expiration checker
-        let should_notify = match (next_expiration, expiration) {
+        let should_notify = match (next_expiration, value.expiry) {
             // No expirations at all => No notification
             (None, None) => false,
             // No current expirations, but there is an expiration in the new value => Notify
@@ -65,14 +48,22 @@ where
             // Both exist => Only notify if next expiration is the first to occur
             (Some(next_expiration), Some(expiration)) => expiration < next_expiration,
         };
+
+        // Insert the new data
+        let mut data = self.store.data.write().await;
+        data.insert(key, value);
+
+        // Drop data when we're done mutating state.
+        drop(data);
+
         if should_notify {
             self.store.background_task.notify_one();
         }
     }
 }
 
-impl<V> Store<V> {
-    fn new() -> Store<V> {
+impl Store {
+    fn new() -> Store {
         Store {
             data: RwLock::new(HashMap::new()),
             background_task: Notify::new(),
@@ -110,10 +101,10 @@ impl<V> Store<V> {
     }
 }
 
-async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
+async fn remove_expired_entries(data: Arc<Store>) {
     loop {
         if let Some(instant) = data.remove_expired_values().await {
-            tokio::select! {
+            select! {
                 // Hope to switch this call to `sleep_until` as it seems cleaner.
                 // This depends on better time handling.
                 _ = tokio::time::sleep(instant) => {}
@@ -131,6 +122,7 @@ async fn remove_expired_entries<V>(data: Arc<Store<V>>) {
 mod tests {
     use super::*;
 
+    use aether_common::db::Data;
     use std::time::Duration as StdDuration;
     use time::Duration;
 
@@ -151,12 +143,20 @@ mod tests {
         database
             .set(
                 "expire soon".to_string(),
-                "value".to_string(),
-                long_future_instant,
+                Value {
+                    data: Data::String("value".to_string()),
+                    expiry: long_future_instant,
+                },
             )
             .await;
         database
-            .set("forever".to_string(), "value".to_string(), None)
+            .set(
+                "forever".to_string(),
+                Value {
+                    data: Data::String("value".to_string()),
+                    expiry: None,
+                },
+            )
             .await;
         assert_eq!(database.store.data.read().await.len(), 2);
 
@@ -164,8 +164,10 @@ mod tests {
         database
             .set(
                 "expire sooner".to_string(),
-                "value".to_string(),
-                short_future_instant,
+                Value {
+                    data: Data::String("value".to_string()),
+                    expiry: short_future_instant,
+                },
             )
             .await;
         assert_eq!(database.store.data.read().await.len(), 3);
@@ -197,28 +199,28 @@ mod tests {
             data.insert(
                 "expired".to_string(),
                 Value {
-                    value: "value".to_string(),
+                    data: Data::String("value".to_string()),
                     expiry: past_instant,
                 },
             );
             data.insert(
                 "unexpired_1".to_string(),
                 Value {
-                    value: "value".to_string(),
+                    data: Data::String("value".to_string()),
                     expiry: future_instant,
                 },
             );
             data.insert(
                 "unexpired_2".to_string(),
                 Value {
-                    value: "value".to_string(),
+                    data: Data::String("value".to_string()),
                     expiry: future_instant,
                 },
             );
             data.insert(
                 "forever".to_string(),
                 Value {
-                    value: "value".to_string(),
+                    data: Data::String("value".to_string()),
                     expiry: None,
                 },
             );
